@@ -58,7 +58,10 @@ func _ready() -> void:
 
 ## 说一句话。text 是要显示的字幕（已经翻译好的句子）；voice_text 是拿去合成声音的字，留空就用 text。
 ## 字幕只有省略号这类不出声的字时，用 voice_text 给一串含糊的音节。
+## 和还没说完的最后一句一样就不再说，免得连着点两下听到两遍同样的话。
 func say(text: String, voice: Babble.Voice, voice_text := "", volume_db := 0.0) -> void:
+	if repeats_last(text, _line, _queue):
+		return
 	_queue.append({"text": text, "voice": voice, "voice_text": voice_text, "volume_db": volume_db})
 	if _line == "":
 		_next()
@@ -80,6 +83,13 @@ func clear() -> void:
 	_line = ""
 	_player.stop()
 	_label.visible = false
+
+
+## text 是不是和最后一句还没说完的话相同。current 是正在说的那句（说完淡掉以后是空串），
+## queue 是排着的话；排着的有话就比队尾那句，没有就比正在说的那句。
+static func repeats_last(text: String, current: String, queue: Array[Dictionary]) -> bool:
+	var last: String = queue.back()["text"] if not queue.is_empty() else current
+	return text == last
 
 
 ## 字幕框的左上角放在哪。spot 是说话人投到屏幕上的点（字幕的底边正中对着它），
