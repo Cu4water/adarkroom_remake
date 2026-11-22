@@ -88,8 +88,13 @@ const SEAT_BACK := 0.31
 ## 放椅子时她站在椅子后面多远，放好以后从椅子侧面多远绕到前面。
 const PUT_BEHIND := 0.5
 const WALK_AROUND := 0.5
-## 抱着椅子走的时候，椅子相对她的位置：坐面托在两手之间，椅面朝她，靠背在外侧。
-const CARRY := Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, 0.58, 0.4))
+## 抱着椅子时，椅子相对她两手正中的位置（在她自己的朝向里）：两手扣住坐面靠她的一边，
+## 椅面朝她、靠背在外侧。坐面高 0.43 米，所以椅子原点在手下方这么多。
+const CARRY := Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -0.45, 0.2))
+## 递板子时，板子相对她两手正中的位置：竖着举在胸前，正面朝外，上沿往她那边斜一点。
+const OFFER := Transform3D(Basis(Vector3.RIGHT, -0.35), Vector3(0.0, 0.05, 0.06))
+## 递板子时她走到离主角多远停下。
+const OFFER_DISTANCE := 1.1
 
 ## 她缓过来的每一步有多模糊。HELPING 之后就是一个清楚的人。
 const BLUR: Dictionary[State, float] = {
@@ -199,6 +204,35 @@ static func seat_layout(chair: Vector3, fire: Vector3) -> Dictionary:
 		"around": chair + side * WALK_AROUND,
 		"yaw": atan2(forward.x, forward.z),
 	}
+
+
+## 从 from 走到 to 的路线（地面上，不含起点）。直线穿过 center 处半径 radius 的圆（火塘）时，
+## 先贴着圆外绕过去。
+static func route_around(from: Vector3, to: Vector3, center: Vector3, radius: float) -> Array[Vector3]:
+	var a := Vector2(from.x, from.z)
+	var b := Vector2(to.x, to.z)
+	var c := Vector2(center.x, center.z)
+	if Geometry2D.segment_intersects_circle(a, b, c, radius) < 0.0:
+		return [to]
+	# 沿着火塘外面一圈、从近的那一侧绕过去，每 45 度一个点。点放得比 radius 稍远，两点之间的直线才不会切进圈里。
+	var start := (a - c).angle()
+	var sweep := wrapf((b - c).angle() - start, -PI, PI)
+	var steps := maxi(1, ceili(absf(sweep) / (PI / 4.0)))
+	var ring := radius / cos(PI / 8.0) + 0.05
+	var route: Array[Vector3] = []
+	for k: int in steps + 1:
+		var point := c + Vector2.from_angle(start + sweep * k / steps) * ring
+		route.append(Vector3(point.x, 0.0, point.y))
+	route.append(to)
+	return route
+
+
+## 从 from 朝 to 走、在离 to 还有 distance 的地方停下，停在哪。离得本来就近就原地不动。
+static func stop_short(from: Vector3, to: Vector3, distance: float) -> Vector3:
+	var flat := Vector3(to.x - from.x, 0.0, to.z - from.z)
+	if flat.length() <= distance:
+		return Vector3(from.x, 0.0, from.z)
+	return Vector3(to.x, 0.0, to.z) - flat.normalized() * distance
 
 
 ## 从 from 沿状态机连线走到 to 要经过的状态（含两端）；走不到时返回空数组。

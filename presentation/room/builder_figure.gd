@@ -11,7 +11,7 @@ extends Node3D
 ##   说话：头顶的 NpcSpeech，字幕跟着"哔哔啵啵"的声音逐字出来。
 ##
 ## 椅子：她刚进门时椅子在右墙边的暗处。缓过一点以后，她站起来把椅子搬到火边坐下，
-## 之后发抖、睡着、帮忙都坐在这把椅子上，添柴时起身，添完再坐回去。
+## 之后发抖、睡着、帮忙都坐在这把椅子上，添柴时起身，添完再坐回去。椅子和板子摆在哪由 BuilderProps 管。
 ##
 ## 这个节点不认识模拟层的规则，由 Room 告诉它等级、室温、"她刚添了一根柴"和"她说了什么"。
 
@@ -19,8 +19,12 @@ extends Node3D
 signal log_taken
 ## 柴塞进火里的那一刻。
 signal log_tossed
+## 椅子落地的那一刻。
+signal chair_set_down
+## 她把板子递到主角手里的那一刻。
+signal board_given
 
-enum ChairAt { HOME, CARRIED, BY_FIRE }
+const ChairAt := BuilderProps.ChairAt
 
 ## 地板高度都是 0。她在门口出现，踉跄着往屋里走几步，冲着火的方向瘫倒。
 ## 躺下时身子从脚往后伸出一米多，所以倒的地方离后墙和门扇都要留出空。
@@ -37,6 +41,8 @@ enum ChairAt { HOME, CARRIED, BY_FIRE }
 @export var fire_center := Vector3(0.55, 0.0, -1.48)
 @export var pile_spot := Vector3(1.42, 0.0, -1.48)
 @export var pile_target := Vector3(1.65, 0.0, -1.60)
+## 她走路时离火塘中心至少多远。比她坐着的地方离火心近一点，起步不用先绕。
+@export var hearth_radius := 0.7
 ## 走路和踉跄的速度，米每秒。刚缓过来时走得慢。
 @export var walk_speed := 0.85
 @export var weak_walk_speed := 0.55
@@ -56,9 +62,7 @@ var speech: NpcSpeech
 
 var _rig := BuilderRig.new()
 var _materials := BuilderMaterials.new()
-var _held_log: Node3D
-var _chair: Node3D
-var _chair_at := ChairAt.HOME
+var _props := BuilderProps.new()
 
 var _state := BuilderPose.State.HIDDEN
 var _temperature := 0
@@ -83,9 +87,7 @@ func _ready() -> void:
 	_noise.frequency = 1.0
 	_materials.apply(self)
 	_rig.setup(self)
-	_held_log = find_child("Builder_HeldLog", true, false) as Node3D
-	if _held_log != null:
-		_held_log.visible = false
+	_props.bind_log(find_child("Builder_HeldLog", true, false) as Node3D)
 	speech = NpcSpeech.new()
 	speech.name = "Speech"
 	add_child(speech)
@@ -95,8 +97,9 @@ func _ready() -> void:
 
 ## 她要搬的那把椅子。Room 在 _ready 里交给她，之后椅子放在哪由她管。
 func bind_chair(chair: Node3D) -> void:
-	_chair = chair
-	_place_chair(_chair_at)
+	_props.setup(Transform3D(Basis(Vector3.UP, chair_home_yaw), chair_home),
+		Transform3D(Basis(Vector3.UP, _layout()["yaw"]), chair_spot))
+	_props.bind_chair(chair)
 
 
 ## 按模拟现在的状态直接摆好，不做过渡。
@@ -107,7 +110,7 @@ func sync(level: int, temperature: int) -> void:
 	_step_speed = 1.0
 	_cold_left = 0.0
 	_shake_left = 0.0
-	_set_held_log(false)
+	_props.empty_hands(self)
 	speech.clear()
 	_temperature = temperature
 	_state = BuilderPose.state_for(level)
@@ -115,11 +118,11 @@ func sync(level: int, temperature: int) -> void:
 	if BuilderPose.has_chair(_state):
 		position = layout["seat"]
 		_target_yaw = layout["yaw"]
-		_place_chair(ChairAt.BY_FIRE)
+		_props.place_chair(ChairAt.BY_FIRE)
 	else:
 		position = collapse_spot
 		_target_yaw = BuilderPose.yaw_towards(position, fire_center)
-		_place_chair(ChairAt.HOME)
+		_props.place_chair(ChairAt.HOME)
 	rotation.y = _target_yaw
 	_blur = BuilderPose.blur_for(_state, _temperature)
 	_shiver = BuilderPose.shiver_for(_state, _temperature)
@@ -177,6 +180,28 @@ func stoke() -> bool:
 	return true
 
 
+## 第一次找她说话：她从椅子上站起来，抱着板子走到主角跟前递过来，说一句 line，再走回去坐下。
+## target 是主角站的地方。她不在帮忙、或者手上正忙，就返回 false。
+func hand_over(target: Vector3, line: String) -> bool:
+	if _state != BuilderPose.State.HELPING or not _steps.is_empty():
+		return false
+	var layout := _layout()
+	var seat: Vector3 = layout["seat"]
+	var stop := BuilderPose.stop_short(seat, target, BuilderPose.OFFER_DISTANCE)
+	_steps.append({"until": BuilderPose.ANIM_IDLE})
+	_steps.append({"board": true})
+	for point: Vector3 in BuilderPose.route_around(seat, stop, fire_center, hearth_radius):
+		_steps.append({"to": point, "anim": BuilderPose.ANIM_WALK_CARRY})
+	_steps.append({"emit": &"board_given"})
+	_steps.append({"board": false})
+	_steps.append({"say": line})
+	_steps.append({"face": target, "wait": 1.8, "anim": BuilderPose.ANIM_IDLE})
+	for point: Vector3 in BuilderPose.route_around(stop, seat, fire_center, hearth_radius):
+		_steps.append({"to": point, "anim": BuilderPose.ANIM_WALK})
+	_steps.append({"yaw": layout["yaw"], "until": BuilderPose.ANIM_SITTING})
+	return true
+
+
 ## 屋里太冷，她抱着胳膊哆嗦一阵。
 func shiver_once() -> void:
 	if visible:
@@ -207,7 +232,7 @@ func current_anim() -> StringName:
 
 ## 椅子现在在哪。玩家走动时要绕开她和椅子。
 func chair_position() -> Vector3:
-	return _chair.global_position if _chair != null else chair_home
+	return _props.chair_position(chair_home)
 
 
 func _process(delta: float) -> void:
@@ -235,16 +260,15 @@ func _process(delta: float) -> void:
 		speed = BuilderPose.speed_for(_state)
 		_rig.go(BuilderPose.anim_for(_state))
 	_advance_and_overlay(delta * speed, delta)
-	if _chair_at == ChairAt.CARRIED:
-		_place_chair(ChairAt.CARRIED)
+	_props.follow(global_transform, _rig.hands_position(global_position + Vector3.UP))
 	_follow_head()
 
 
 func _arrive() -> void:
 	_steps.clear()
 	_step_time = 0.0
-	_set_held_log(false)
-	_place_chair(ChairAt.HOME)
+	_props.show_log(false)
+	_props.place_chair(ChairAt.HOME)
 	position = door_spot
 	_target_yaw = BuilderPose.yaw_towards(position, collapse_spot)
 	rotation.y = _target_yaw
@@ -267,18 +291,21 @@ func _fetch_chair() -> void:
 	for point: Vector3 in to_chair:
 		_steps.append({"to": point, "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
 	_steps.append({"to": chair_pick_spot, "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
-	_steps.append({"face": chair_home, "wait": _anim_seconds(BuilderPose.ANIM_PICKUP, BuilderPose.PICKUP_GRAB),
-		"anim": BuilderPose.ANIM_PICKUP})
+	# 弯腰扣住坐面，直起身时椅子跟着手一起离地。
+	var grab := _anim_seconds(BuilderPose.ANIM_PICKUP, BuilderPose.PICKUP_GRAB)
+	var rise := _anim_seconds(BuilderPose.ANIM_PICKUP, BuilderPose.PICKUP_DONE - BuilderPose.PICKUP_GRAB)
+	_steps.append({"face": chair_home, "wait": grab / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow})
 	_steps.append({"chair": ChairAt.CARRIED})
-	_steps.append({"wait": _anim_seconds(BuilderPose.ANIM_PICKUP, BuilderPose.PICKUP_DONE - BuilderPose.PICKUP_GRAB),
-		"anim": BuilderPose.ANIM_PICKUP})
+	_steps.append({"wait": rise / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow, "lift": 1.0})
 	_steps.append({"to": layout["put"], "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK_CARRY,
 		"anim_speed": slow})
-	_steps.append({"face": chair_spot, "wait": _anim_seconds(BuilderPose.ANIM_PICKUP, BuilderPose.PICKUP_GRAB),
-		"anim": BuilderPose.ANIM_PICKUP})
+	# 弯腰把它放下，椅子跟着手落到火边。
+	_steps.append({"aim_chair": ChairAt.BY_FIRE})
+	_steps.append({"face": chair_spot, "wait": grab / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow,
+		"lift": 0.0})
 	_steps.append({"chair": ChairAt.BY_FIRE})
-	_steps.append({"wait": _anim_seconds(BuilderPose.ANIM_PICKUP, BuilderPose.PICKUP_DONE - BuilderPose.PICKUP_GRAB),
-		"anim": BuilderPose.ANIM_PICKUP})
+	_steps.append({"emit": &"chair_set_down"})
+	_steps.append({"wait": rise / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow})
 	_steps.append({"to": layout["around"], "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
 	_steps.append({"to": layout["seat"], "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
 	_steps.append({"yaw": layout["yaw"], "wait": 0.5, "anim": BuilderPose.ANIM_IDLE_COLD})
@@ -303,9 +330,16 @@ func _run_steps(delta: float) -> void:
 		if current.has("yaw"):
 			_target_yaw = current["yaw"]
 		if current.has("log"):
-			_set_held_log(bool(current["log"]))
+			_props.show_log(bool(current["log"]))
+		# 下面这几样只出现在不带等待的单独一步里，只做一次。
 		if current.has("chair"):
-			_place_chair(current["chair"])
+			_props.place_chair(current["chair"])
+		if current.has("aim_chair"):
+			_props.aim_chair(current["aim_chair"])
+		if current.has("board"):
+			_props.show_board(self, current["board"])
+		if current.has("say"):
+			say(current["say"])
 		_step_speed = current.get("anim_speed", 1.0)
 		if current.has("to"):
 			var to: Vector3 = current["to"]
@@ -320,7 +354,12 @@ func _run_steps(delta: float) -> void:
 		elif current.has("wait"):
 			_step_anim = current.get("anim", BuilderPose.ANIM_IDLE)
 			_step_time += delta
-			if _step_time < float(current["wait"]):
+			var wait := float(current["wait"])
+			if current.has("lift"):
+				if not current.has("lift_from"):
+					current["lift_from"] = _props.lift
+				_props.lift = lerpf(current["lift_from"], current["lift"], clampf(_step_time / wait, 0.0, 1.0))
+			if _step_time < wait:
 				return
 			_step_time = 0.0
 		elif current.has("until"):
@@ -340,21 +379,8 @@ func _layout() -> Dictionary:
 	return BuilderPose.seat_layout(chair_spot, fire_center)
 
 
-func _place_chair(at: ChairAt) -> void:
-	_chair_at = at
-	if _chair == null:
-		return
-	match at:
-		ChairAt.HOME:
-			_chair.global_transform = Transform3D(Basis(Vector3.UP, chair_home_yaw), chair_home)
-		ChairAt.BY_FIRE:
-			_chair.global_transform = Transform3D(Basis(Vector3.UP, _layout()["yaw"]), chair_spot)
-		ChairAt.CARRIED:
-			_chair.global_transform = global_transform * BuilderPose.CARRY
-
-
 func _follow_head() -> void:
-	var head := _rig.head_position(global_position + Vector3.UP * 1.45)
+	var head := _rig.bone_position(&"Head", global_position + Vector3.UP * 1.45)
 	speech.global_position = head + Vector3.UP * speech_height
 
 
@@ -372,8 +398,3 @@ func _advance_and_overlay(anim_delta: float, delta: float) -> void:
 	# 摇头：左右来回几下，越摇越轻。
 	var shake := sin(_shake_left * TAU * 2.2) * 0.32 * minf(_shake_left, 1.0) if _shake_left > 0.0 else 0.0
 	_rig.overlay(tremble, breath, _head_offset, shake)
-
-
-func _set_held_log(shown: bool) -> void:
-	if _held_log != null:
-		_held_log.visible = shown

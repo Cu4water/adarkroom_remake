@@ -59,6 +59,11 @@ func busy() -> bool:
 	return _line != ""
 
 
+## 还有排着没说的话（不算正在说的这句）。
+func has_pending() -> bool:
+	return not _queue.is_empty()
+
+
 ## 立刻闭嘴，清空排着的话。
 func clear() -> void:
 	_queue.clear()

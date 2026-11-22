@@ -6,6 +6,30 @@ enum Level { ABSENT = -1, APPROACHING, COLLAPSED, SHIVERING, SLEEPING, HELPING }
 
 const TIMER_STATE := &"builder.state"
 const TIMER_NEED_WOOD := &"builder.need_wood"
+const CMD_TALK := &"builder.talk"
+## 她把画着能造什么的板子交给主角以后才有。
+const FEATURE_BOARD := &"board"
+
+
+func register(sim: Simulation) -> void:
+	sim.register_command(CMD_TALK, _talk)
+
+
+## 现在能不能跟她说话。只读，表现层拿它决定她亮不亮。
+static func can_talk(sim: Simulation) -> bool:
+	return sim.state.builder_level == Level.HELPING
+
+
+## 主角找她说话。第一次她把板子交过来；之后只是寒暄几句。
+func _talk(sim: Simulation, _args: Dictionary) -> StringName:
+	if not can_talk(sim):
+		return &"not_ready"
+	if sim.has_feature(FEATURE_BOARD):
+		sim.narrate(&"builder.chat")
+	else:
+		sim.unlock(FEATURE_BOARD)
+		sim.narrate(&"builder.gives_board")
+	return Simulation.OK
 
 
 func step(sim: Simulation, dt: float) -> void:

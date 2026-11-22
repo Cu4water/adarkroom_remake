@@ -37,6 +37,19 @@ func test_the_head_does_not_turn_past_the_limits(t: TestCase) -> void:
 	t.done()
 
 
+func test_turning_towards_something_eases_and_takes_the_short_way(t: TestCase) -> void:
+	var from := Vector2(3.0, 0.2)
+	var to := Vector2(-3.0, -0.4)
+	t.eq(PovView.blend(from, to, 0.0), from, "还没开始转时就是原来的朝向")
+	t.ok(PovView.blend(from, to, 1.0).distance_to(to) < 1e-5, "转完正好对上")
+	var half := PovView.blend(from, to, 0.5)
+	t.ok(absf(absf(half.x) - PI) < 0.01, "左右走近的那一边，从背后绕过去：%.3f" % half.x)
+	t.ok(is_equal_approx(half.y, -0.1), "上下走一半")
+	var early := PovView.blend(from, to, 0.1)
+	t.ok(absf(early.y - from.y) < 0.1 * absf(to.y - from.y), "起步慢")
+	t.done()
+
+
 func test_only_usable_things_under_the_crosshair_glow(t: TestCase) -> void:
 	t.eq(PovView.glow(false, true, 0.6), 0.0, "用不了的东西对准了也不亮")
 	t.eq(PovView.glow(true, false, 0.6), 0.0, "用得了但没对准的东西也不亮")

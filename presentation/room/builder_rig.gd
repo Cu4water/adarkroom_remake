@@ -84,11 +84,16 @@ func overlay(tremble: float, breath: float, head: Vector2, shake: float) -> void
 			* Quaternion(Vector3.FORWARD, head.y + tremble * 0.045))
 
 
-## 头部骨骼现在在世界里的位置。没有骨架时返回 fallback。
-func head_position(fallback: Vector3) -> Vector3:
-	if skeleton == null or not _bones.has(&"Head"):
+## 某根骨骼现在在世界里的位置。没有这根骨骼时返回 fallback。
+func bone_position(bone_name: StringName, fallback: Vector3) -> Vector3:
+	if skeleton == null or not _bones.has(bone_name):
 		return fallback
-	return skeleton.global_transform * skeleton.get_bone_global_pose(_bones[&"Head"]).origin
+	return skeleton.global_transform * skeleton.get_bone_global_pose(_bones[bone_name]).origin
+
+
+## 两只手正中在世界里的位置。
+func hands_position(fallback: Vector3) -> Vector3:
+	return (bone_position(&"hand_l", fallback) + bone_position(&"hand_r", fallback)) * 0.5
 
 
 func _build_tree() -> void:

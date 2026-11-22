@@ -23,6 +23,20 @@ func test_fire_lands_where_the_player_clicked(t: TestCase) -> void:
 	t.done()
 
 
+func test_turning_only_the_head_puts_the_fire_under_the_click(t: TestCase) -> void:
+	var eye := Vector3(-0.9, 1.15, 0.3)
+	for aspect: float in ASPECTS:
+		for spot: Vector2 in SPOTS:
+			var look := OpeningView.look_for(spot, eye, FIRE, FOV, aspect)
+			var landed := OpeningView.project(Transform3D(PovView.basis(look), eye), FIRE, FOV, aspect)
+			t.ok(landed.distance_to(spot) < 0.0005, "宽高比 %.2f 点 %s，火落在了 %s" % [aspect, spot, landed])
+	t.ok(OpeningView.look_for(Vector2.ZERO, eye, FIRE, FOV, 16.0 / 9.0).distance_to(PovView.look_at(eye, FIRE)) < 1e-4,
+		"点正中间和直接看着火是同一个朝向")
+	t.eq(OpeningView.to_ndc(Vector2(0.0, 0.0), Vector2(1920.0, 1080.0)), Vector2(-1.0, 1.0), "左上角")
+	t.eq(OpeningView.to_ndc(Vector2(960.0, 540.0), Vector2(1920.0, 1080.0)), Vector2.ZERO, "正中间")
+	t.done()
+
+
 func test_camera_never_tilts_its_head(t: TestCase) -> void:
 	for spot: Vector2 in SPOTS:
 		var view := OpeningView.solve(spot, FIRE, HOME, REACH, FOV, 16.0 / 9.0)

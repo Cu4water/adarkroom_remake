@@ -1,13 +1,18 @@
 class_name BuildBoard
 extends Control
-## 建造者递过来的数据板：上面是手头有多少木头，下面是她说过能造的东西。
-## 每一样画一张线描小图，标着要多少木头、已经有几个、最多几个。现在造得成的亮着，造不成的暗着。
-## 点一样就让模拟去造（village.build）；造不成时她会摇头或者打哆嗦，那是 BuilderFigure 演的。
+## 建造者递过来的那块板子（参考《铁巢重炮》的剪贴板）：一块木夹板夹着一张纸，纸上是她用铅笔画的
+## 能造的东西。拿到以后平时斜拿在画面右下角，只露出一角；按 Tab 举到画面正中放大，放出鼠标，
+## 再按 Tab、Esc、右键或者点板子外面就放回去。
 ##
-## 只用图和数字，没有字。打开时放出鼠标；Esc、右键或者点数据板外面就收起来。
+## 纸上：顶上是手头有多少木头；下面每样东西一行，一张小图、要多少木头、已有几个 / 最多几个。
+## 现在造得成的写得深，造不成的淡；造满了的划掉。点一样就让模拟去造（village.build）。
+## 只有图和手写的数字，没有字。assets/ui/board/ 里有手绘图就用图（见 BoardIcon、HandNumber），
+## clipboard.png 是整块夹板的底图。
 
-signal closed
-signal built(id: StringName)
+signal raised
+signal lowered
+
+enum Pose { AWAY, HELD, RAISED }
 
 ## 第一章只到陷阱和车。小屋是第二章的事，不上这块板。
 const ENTRIES: Array[StringName] = [ForestSystem.TRAP, ForestSystem.CART]
@@ -16,108 +21,225 @@ const ICONS: Dictionary[StringName, BoardIcon.Kind] = {
 	ForestSystem.CART: BoardIcon.Kind.CART,
 }
 const WOOD := &"wood"
+const CLIPBOARD_ART := "res://assets/ui/board/clipboard.png"
 
-@export var ink := Color(0.95, 0.84, 0.66)
-@export var slate := Color(0.055, 0.05, 0.045, 0.96)
-@export var rim := Color(0.62, 0.46, 0.28, 0.55)
-## 造不成的那一项暗到多少。
-@export var dim := 0.32
-@export var open_seconds := 0.18
+## 夹板的大小（举起来时的像素），纸边距（上、右、下、左，占夹板的比例）。
+@export var sheet_size := Vector2(430.0, 570.0)
+@export var paper_margin := Vector4(0.13, 0.08, 0.06, 0.08)
+## 平时拿在右下角：缩多小、斜多少、露出来的那一角有多大（像素）。
+@export var held_scale := 0.42
+@export var held_tilt := 0.3
+@export var held_peek := Vector2(140.0, 150.0)
+## 举起来时斜多少，以及动作多快。
+@export var raised_tilt := -0.03
+@export var move_seconds := 0.3
+@export var ink := Color(0.2, 0.18, 0.16)
+@export var paper := Color(0.86, 0.8, 0.67)
+@export var wood := Color(0.38, 0.25, 0.15)
+## 造不成的那一项淡到多少。
+@export var faint := 0.35
 
-var _wood_label: Label
-var _entries: Dictionary[StringName, Button] = {}
-var _costs: Dictionary[StringName, Label] = {}
-var _owned: Dictionary[StringName, Label] = {}
-var _row: HBoxContainer
-var _panel: PanelContainer
+var _pose := Pose.AWAY
+var _sheet: Control
+var _wood_number: HandNumber
+var _entries: Dictionary[StringName, Entry] = {}
+var _tween: Tween
+
+
+## 纸上的一行。可以点；鼠标停在上面时用铅笔圈起来，造满了就划一道。
+class Entry extends Button:
+	var ink := Color.BLACK
+	var maxed := false
+	var cost: HandNumber
+	var owned: HandNumber
+
+	func _init() -> void:
+		flat = true
+		focus_mode = Control.FOCUS_NONE
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		for state: StringName in [&"normal", &"hover", &"pressed", &"hover_pressed", &"disabled", &"focus"]:
+			add_theme_stylebox_override(state, StyleBoxEmpty.new())
+		mouse_entered.connect(queue_redraw)
+		mouse_exited.connect(queue_redraw)
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size).grow(-4.0)
+		if is_hovered() and not maxed:
+			var ring := PackedVector2Array()
+			for k: int in 30:
+				var a := -2.6 + TAU * 1.06 * k / 29.0
+				var wobble := 1.0 + 0.03 * sin(a * 3.0)
+				ring.append(r.get_center() + Vector2(cos(a) * r.size.x * 0.5, sin(a) * r.size.y * 0.5) * wobble)
+			draw_polyline(ring, Color(ink, 0.7), 2.2, true)
+		if maxed:
+			draw_line(Vector2(r.position.x, r.get_center().y + 6.0), Vector2(r.end.x, r.get_center().y - 4.0),
+				Color(ink, 0.8), 2.6, true)
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	visible = false
-	var shade := ColorRect.new()
-	shade.color = Color(0.0, 0.0, 0.0, 0.35)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(shade)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sheet = Control.new()
+	_sheet.size = sheet_size
+	_sheet.pivot_offset = sheet_size * 0.5
+	_sheet.mouse_filter = Control.MOUSE_FILTER_STOP
+	_sheet.draw.connect(_draw_sheet)
+	add_child(_sheet)
 
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(center)
-	_panel = PanelContainer.new()
-	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_panel.add_theme_stylebox_override(&"panel", _slate_style())
-	center.add_child(_panel)
+	var margin := MarginContainer.new()
+	margin.position = Vector2(paper_margin.w, paper_margin.x) * sheet_size
+	margin.size = sheet_size * Vector2(1.0 - paper_margin.y - paper_margin.w, 1.0 - paper_margin.x - paper_margin.z)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side: StringName in [&"margin_left", &"margin_right", &"margin_top", &"margin_bottom"]:
+		margin.add_theme_constant_override(side, 18)
+	_sheet.add_child(margin)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override(&"separation", 18)
-	_panel.add_child(column)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override(&"separation", 10)
+	margin.add_child(column)
 
 	var header := HBoxContainer.new()
-	header.add_theme_constant_override(&"separation", 12)
-	header.add_child(_icon(BoardIcon.Kind.WOOD, 40.0))
-	_wood_label = _number(30)
-	header.add_child(_wood_label)
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_theme_constant_override(&"separation", 10)
+	header.add_child(_icon(BoardIcon.Kind.WOOD, 46.0))
+	_wood_number = _number(34.0)
+	header.add_child(_wood_number)
 	column.add_child(header)
-	var rule := ColorRect.new()
-	rule.color = Color(rim, 0.35)
-	rule.custom_minimum_size = Vector2(0.0, 2.0)
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(rule)
-
-	_row = HBoxContainer.new()
-	_row.add_theme_constant_override(&"separation", 22)
-	_row.custom_minimum_size = Vector2(420.0, 0.0)
-	column.add_child(_row)
 	for id: StringName in ENTRIES:
-		_row.add_child(_entry(id))
+		column.add_child(_entry(id))
+	visible = false
+
+	# 拿在右下角时露出来的那一角正好是木头数，所以不管举没举起来，模拟一变就重写。
+	var events: SimEvents = Game.events
+	events.store_changed.connect(_refresh_if_shown.unbind(4))
+	events.building_changed.connect(_refresh_if_shown.unbind(2))
+	events.temperature_changed.connect(_refresh_if_shown.unbind(1))
+	events.unlocked.connect(_refresh_if_shown.unbind(1))
+	events.state_replaced.connect(_refresh_if_shown)
 
 
-func open() -> void:
+## 她把板子递过来：从画面下方滑进右下角。
+func give() -> void:
+	if _pose != Pose.AWAY:
+		return
 	_refresh()
 	visible = true
-	modulate.a = 0.0
-	_panel.scale = Vector2.ONE * 0.96
-	_panel.pivot_offset = _panel.size * 0.5
-	var tween := create_tween().set_parallel(true)
-	tween.tween_property(self, ^"modulate:a", 1.0, open_seconds)
-	tween.tween_property(_panel, ^"scale", Vector2.ONE, open_seconds).set_trans(Tween.TRANS_SINE)
+	var held := _held_place()
+	_sheet.position = held[0] + Vector2(0.0, sheet_size.y)
+	_sheet.rotation = held[1]
+	_sheet.scale = Vector2.ONE * held_scale
+	_go(Pose.HELD, move_seconds * 2.0)
 
 
-func close() -> void:
-	if not visible:
-		return
-	visible = false
-	closed.emit()
-
-
-func _process(_delta: float) -> void:
-	if visible:
+## 按存档直接摆好：有板子就拿在右下角，没有就不显示。
+func set_owned(owned: bool) -> void:
+	if _tween != null:
+		_tween.kill()
+	_pose = Pose.HELD if owned else Pose.AWAY
+	visible = owned
+	_set_interactive(false)
+	if owned:
 		_refresh()
+		var held := _held_place()
+		_sheet.position = held[0]
+		_sheet.rotation = held[1]
+		_sheet.scale = Vector2.ONE * held_scale
+
+
+func is_raised() -> bool:
+	return _pose == Pose.RAISED
+
+
+func raise() -> void:
+	if _pose == Pose.HELD:
+		_refresh()
+		_go(Pose.RAISED, move_seconds)
+		raised.emit()
+
+
+func lower() -> void:
+	if _pose == Pose.RAISED:
+		_go(Pose.HELD, move_seconds)
+		lowered.emit()
+
+
+## 屋里有多亮，0 到 1。火小了，手里的纸也跟着暗下去。
+func set_light(level: float) -> void:
+	var shade := lerpf(0.28, 1.0, clampf(level, 0.0, 1.0))
+	modulate = Color(shade, shade * 0.97, shade * 0.92)
 
 
 func _gui_input(event: InputEvent) -> void:
 	var click := event as InputEventMouseButton
-	if click != null and click.pressed:
-		# 点到数据板外面的暗处，就是不看了。
-		close()
+	if click != null and click.pressed and _pose == Pose.RAISED:
+		# 点到板子外面，就是放回去。
+		lower()
 		accept_event()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not visible:
+	if _pose == Pose.AWAY:
+		return
+	if event.is_action_pressed(&"board"):
+		if _pose == Pose.RAISED:
+			lower()
+		else:
+			raise()
+		get_viewport().set_input_as_handled()
+		return
+	if _pose != Pose.RAISED:
 		return
 	var click := event as InputEventMouseButton
 	var right_click := click != null and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT
 	if right_click or event.is_action_pressed(&"ui_cancel"):
-		close()
+		lower()
 		get_viewport().set_input_as_handled()
+
+
+func _go(pose: Pose, seconds: float) -> void:
+	_pose = pose
+	_set_interactive(pose == Pose.RAISED)
+	var place := _raised_place() if pose == Pose.RAISED else _held_place()
+	var size_scale := _raised_scale() if pose == Pose.RAISED else held_scale
+	if _tween != null:
+		_tween.kill()
+	_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_property(_sheet, ^"position", place[0], seconds)
+	_tween.tween_property(_sheet, ^"rotation", place[1], seconds)
+	_tween.tween_property(_sheet, ^"scale", Vector2.ONE * size_scale, seconds)
+
+
+## [左上角位置, 旋转]：右下角只露出一角，像斜拿在右手里。
+func _held_place() -> Array:
+	var screen := get_viewport_rect().size
+	var visible_center := screen - held_peek + sheet_size * held_scale * 0.5
+	return [visible_center - sheet_size * 0.5, held_tilt]
+
+
+func _raised_place() -> Array:
+	return [(get_viewport_rect().size - sheet_size) * 0.5, raised_tilt]
+
+
+## 举起来时占画面高度的九成左右。
+func _raised_scale() -> float:
+	return minf(get_viewport_rect().size.y * 0.92 / sheet_size.y, 1.25)
+
+
+func _set_interactive(on: bool) -> void:
+	mouse_filter = Control.MOUSE_FILTER_STOP if on else Control.MOUSE_FILTER_IGNORE
+	_sheet.mouse_filter = Control.MOUSE_FILTER_STOP if on else Control.MOUSE_FILTER_IGNORE
+	for entry: Entry in _entries.values():
+		entry.mouse_filter = Control.MOUSE_FILTER_STOP if on else Control.MOUSE_FILTER_IGNORE
+
+
+func _refresh_if_shown() -> void:
+	if _pose != Pose.AWAY:
+		_refresh()
 
 
 func _refresh() -> void:
 	var sim: Simulation = Game.sim
-	_wood_label.text = str(sim.store(WOOD))
+	_wood_number.text = str(sim.store(WOOD))
 	for id: StringName in ENTRIES:
 		var entry := _entries[id]
 		entry.visible = sim.has_feature(VillageSystem.plan_feature(id))
@@ -125,67 +247,79 @@ func _refresh() -> void:
 			continue
 		var def: BuildingDef = sim.content.buildings[id]
 		var owned := sim.building(id)
-		_owned[id].text = "%d / %d" % [owned, def.maximum]
-		var cost := def.cost_for(owned)
-		_costs[id].text = str(cost.get(WOOD, 0)) if owned < def.maximum else "-"
+		entry.owned.text = "%d/%d" % [owned, def.maximum]
+		entry.maxed = owned >= def.maximum
+		entry.cost.text = "-" if entry.maxed else str(def.cost_for(owned).get(WOOD, 0))
 		var ready := VillageSystem.can_build(sim, id) == Simulation.OK
-		entry.modulate.a = 1.0 if ready else dim
+		entry.modulate.a = 1.0 if ready else faint
+		entry.queue_redraw()
 
 
 func _on_entry_pressed(id: StringName) -> void:
 	var entry := _entries[id]
 	var tween := create_tween()
 	if Game.sim.act(VillageSystem.CMD_BUILD, {"id": id}) == Simulation.OK:
-		built.emit(id)
-		entry.scale = Vector2.ONE * 1.06
+		entry.scale = Vector2.ONE * 1.05
 		tween.tween_property(entry, ^"scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_SINE)
 	else:
 		var x := entry.position.x
-		for offset: float in [-6.0, 5.0, -3.0, 0.0]:
+		for offset: float in [-5.0, 4.0, -2.0, 0.0]:
 			tween.tween_property(entry, ^"position:x", x + offset, 0.05)
+	_refresh()
 
 
-func _entry(id: StringName) -> Button:
-	var button := Button.new()
-	button.flat = true
-	button.focus_mode = Control.FOCUS_NONE
-	var hover := StyleBoxFlat.new()
-	hover.bg_color = Color(ink, 0.06)
-	hover.border_color = Color(rim, 0.5)
-	hover.set_border_width_all(1)
-	hover.set_corner_radius_all(8)
-	var pressed := hover.duplicate() as StyleBoxFlat
-	pressed.bg_color = Color(ink, 0.12)
-	button.add_theme_stylebox_override(&"hover", hover)
-	button.add_theme_stylebox_override(&"pressed", pressed)
-	button.add_theme_stylebox_override(&"hover_pressed", pressed)
-	button.custom_minimum_size = Vector2(190.0, 0.0)
-	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.pressed.connect(_on_entry_pressed.bind(id))
-	button.resized.connect(func() -> void: button.pivot_offset = button.size * 0.5)
-	var column := VBoxContainer.new()
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override(&"separation", 8)
-	column.set_anchors_preset(Control.PRESET_FULL_RECT)
-	button.add_child(column)
-	var picture := _icon(ICONS[id], 112.0)
-	picture.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	column.add_child(picture)
+func _draw_sheet() -> void:
+	var rect := Rect2(Vector2.ZERO, sheet_size)
+	if ResourceLoader.exists(CLIPBOARD_ART):
+		_sheet.draw_texture_rect(load(CLIPBOARD_ART) as Texture2D, rect, false)
+		return
+	var board := StyleBoxFlat.new()
+	board.bg_color = wood
+	board.set_corner_radius_all(14)
+	board.shadow_color = Color(0.0, 0.0, 0.0, 0.45)
+	board.shadow_size = 14
+	_sheet.draw_style_box(board, rect)
+	var sheet_rect := Rect2(Vector2(paper_margin.w, paper_margin.x) * sheet_size,
+		sheet_size * Vector2(1.0 - paper_margin.y - paper_margin.w, 1.0 - paper_margin.x - paper_margin.z))
+	_sheet.draw_rect(sheet_rect, paper)
+	# 纸边一圈旧了的暗黄，像在火边放久了。
+	_sheet.draw_rect(sheet_rect, Color(0.55, 0.42, 0.25, 0.35), false, 6.0)
+	var clip := Rect2(sheet_size.x * 0.32, sheet_size.y * 0.035, sheet_size.x * 0.36, sheet_size.y * 0.11)
+	var metal := StyleBoxFlat.new()
+	metal.bg_color = Color(0.3, 0.29, 0.27)
+	metal.set_corner_radius_all(8)
+	_sheet.draw_style_box(metal, clip)
+	_sheet.draw_rect(clip.grow(-6.0), Color(0.42, 0.4, 0.37), false, 2.0)
+
+
+func _entry(id: StringName) -> Entry:
+	var entry := Entry.new()
+	entry.ink = ink
+	entry.pressed.connect(_on_entry_pressed.bind(id))
+	entry.resized.connect(func() -> void: entry.pivot_offset = entry.size * 0.5)
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.add_theme_constant_override(&"separation", 16)
+	entry.add_child(row)
+	row.add_child(_icon(ICONS[id], 104.0))
+	var numbers := VBoxContainer.new()
+	numbers.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	numbers.alignment = BoxContainer.ALIGNMENT_CENTER
 	var cost_row := HBoxContainer.new()
 	cost_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cost_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	cost_row.add_child(_icon(BoardIcon.Kind.WOOD, 24.0))
-	_costs[id] = _number(24)
-	cost_row.add_child(_costs[id])
-	column.add_child(cost_row)
-	_owned[id] = _number(18)
-	_owned[id].horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_owned[id].modulate.a = 0.7
-	column.add_child(_owned[id])
-	button.custom_minimum_size.y = 112.0 + 24.0 + 18.0 * 1.4 + 40.0
-	_entries[id] = button
-	return button
+	cost_row.add_theme_constant_override(&"separation", 6)
+	cost_row.add_child(_icon(BoardIcon.Kind.WOOD, 30.0))
+	entry.cost = _number(30.0)
+	cost_row.add_child(entry.cost)
+	numbers.add_child(cost_row)
+	entry.owned = _number(24.0)
+	entry.owned.ink = Color(ink, 0.75)
+	numbers.add_child(entry.owned)
+	row.add_child(numbers)
+	entry.custom_minimum_size = Vector2(0.0, 118.0)
+	_entries[id] = entry
+	return entry
 
 
 func _icon(kind: BoardIcon.Kind, side: float) -> BoardIcon:
@@ -194,22 +328,9 @@ func _icon(kind: BoardIcon.Kind, side: float) -> BoardIcon:
 	return icon
 
 
-func _number(font_size: int) -> Label:
-	var label := Label.new()
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override(&"font_size", font_size)
-	label.add_theme_color_override(&"font_color", ink)
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	return label
-
-
-func _slate_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = slate
-	style.border_color = rim
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(12)
-	style.set_content_margin_all(28.0)
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.6)
-	style.shadow_size = 18
-	return style
+func _number(height: float) -> HandNumber:
+	var number := HandNumber.new("", height)
+	number.ink = ink
+	number.variant = hash(height)
+	number.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return number

@@ -28,6 +28,12 @@ static func turn(look: Vector2, mouse_delta: Vector2, sensitivity: float) -> Vec
 		clampf(look.y - mouse_delta.y * sensitivity, -PITCH_LIMIT, PITCH_LIMIT))
 
 
+## 从 from 转到 to，走到 weight（0 到 1）的地方。两头慢中间快，左右走近的那一边，不绕远路。
+static func blend(from: Vector2, to: Vector2, weight: float) -> Vector2:
+	var eased := smoothstep(0.0, 1.0, clampf(weight, 0.0, 1.0))
+	return Vector2(wrapf(lerp_angle(from.x, to.x, eased), -PI, PI), lerpf(from.y, to.y, eased))
+
+
 ## 可交互物件现在该亮多少：只有用得了、而且准星正对着它的时候才亮。
 static func glow(ready: bool, aimed: bool, level: float) -> float:
 	return level if ready and aimed else 0.0

@@ -37,6 +37,12 @@ static func eye_for(ndc: Vector2, home: Vector3, reach: Vector2) -> Vector3:
 ## 相机站在 eye，要让 target 正好落在 ray 这条视线上，该朝哪个方向看。
 ## 只转偏航和俯仰，不歪头。
 static func aim(eye: Vector3, target: Vector3, ray: Vector3) -> Basis:
+	var look := aim_look(eye, target, ray)
+	return Basis(Vector3.UP, look.x) * Basis(Vector3.RIGHT, look.y)
+
+
+## 同 aim，答案写成 PovView 的朝向：x=偏航，y=俯仰。
+static func aim_look(eye: Vector3, target: Vector3, ray: Vector3) -> Vector2:
 	var forward := (target - eye).normalized()
 	# 俯仰不改变水平转角，所以先解俯仰：让视线的竖直分量等于目标方向的竖直分量。
 	var a := ray.y
@@ -46,7 +52,18 @@ static func aim(eye: Vector3, target: Vector3, ray: Vector3) -> Basis:
 	# 再转偏航，把水平方向对上。
 	var pitched := Basis(Vector3.RIGHT, pitch) * ray
 	var yaw := atan2(forward.x, forward.z) - atan2(pitched.x, pitched.z)
-	return Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+	return Vector2(wrapf(yaw, -PI, PI), pitch)
+
+
+## 人不动，只转头：玩家点了屏幕上的 ndc，算出让 target 落在那里的朝向。点得太靠边时收到 EDGE 以内。
+static func look_for(ndc: Vector2, eye: Vector3, target: Vector3, fov_degrees: float, aspect: float) -> Vector2:
+	var spot := ndc.clamp(Vector2(-EDGE, -EDGE), Vector2(EDGE, EDGE))
+	return aim_look(eye, target, local_ray(spot, fov_degrees, aspect))
+
+
+## 屏幕上的像素位置换成 NDC。
+static func to_ndc(pixel: Vector2, screen: Vector2) -> Vector2:
+	return Vector2(pixel.x / screen.x * 2.0 - 1.0, 1.0 - pixel.y / screen.y * 2.0)
 
 
 ## 玩家点了屏幕上的 ndc，算出让 target 落在那里的相机位姿。

@@ -8,31 +8,27 @@ extends Node3D
 ## 挪鼠标就是转头，按方向键（WASD）就站起来在屋里走动。按 Esc 放开鼠标，再点一下收回来。
 ##
 ## 玩家能做的事：
-##   火灭着的时候，点任何地方 → 生火。第一次生火时主角转头看向火，火就在准星上
+##   火灭着的时候，点任何地方 → 生火。第一次生火时火就亮在点的地方，
+##   亮一会儿以后视线慢慢转回来，火到了屏幕正中才出准星、锁鼠标
 ##   火烧着的时候，对准火堆点 → 添柴
 ##   对准门点 → 出去拾柴，柴从门口一根根扔进来落到柴堆上
 ##   对准柴堆点 → 柴堆上方浮起现在的木头数，散掉之前再点不起作用
-##   建造者愿意帮忙以后，对准她点 → 她递过来数据板，上面是她能造的东西
+##   建造者愿意帮忙以后，对准她点 → 第一次她起身把板子递过来，之后随口搭两句，说完一轮就只"……"
+##   拿到板子以后按 Tab → 板子举到眼前、放出鼠标，点上面的东西让她造；再按 Tab 放下
 ## 能点的东西只在当下点了能成、而且准星正对着它的时候才亮起一层淡淡的暖光。
 ##
 ## 开场是全黑的，屏幕上没有字，只有一阵一阵的风。叙述文字只在调试版里按 F1 才显示。
 
 const GLOW_SHADER := preload("res://presentation/room/shaders/interact_glow.gdshader")
-## 她刚缓过来时低声念叨的，听不出是什么话。只拿来合成声音，字幕只有省略号。
-const MUMBLE_VOICE := "mm hm.. mmm hm mm.."
-## 她说的话：节拍 → 字幕的文本键。
-const SPEECH: Dictionary[StringName, StringName] = {
-	&"builder.shivers": &"builder.say.mumble",
-	&"builder.helps": &"builder.say.helps",
-	&"builder.plan.trap": &"builder.say.plan.trap",
-	&"builder.plan.cart": &"builder.say.plan.cart",
-}
 
 ## 主角坐着时眼睛的位置：火塘左前方，门差不多在正前方，火在右前方。
 @export var seat_eye := Vector3(-0.9, 1.15, 0.3)
 ## 站起来以后眼睛多高，站起来有多快（米每秒）。
 @export var stand_height := 1.55
 @export var rise_speed := 0.8
+## 第一次生起火以后：火在玩家点的地方亮多久才开始转头，转回屏幕正中要多久（秒）。转完才出准星、交出鼠标。
+@export var wake_delay := 1.2
+@export var wake_seconds := 1.8
 ## 走路多快（米每秒）。
 @export var walk_speed := 1.3
 ## 眼睛能到的范围（世界 x、z），四面墙往里收了一个身宽。
@@ -82,8 +78,12 @@ var _eye := Vector3.ZERO
 var _standing := false
 ## 生过火没有。生过以后才能转头、走动，才有准星和高亮。
 var _ever_lit := false
+## 第一次生火后站起来转头的过程走了几秒，负数表示不在这段过程里。_wake_from 是开始转时的朝向。
+var _waking := -1.0
+var _wake_from := Vector2.ZERO
 ## 每个能点的东西各自的高亮材质。
 var _glows: Dictionary[Area3D, ShaderMaterial] = {}
+var _lines := BuilderLines.new()
 
 
 func _ready() -> void:
@@ -108,8 +108,11 @@ func _ready() -> void:
 	_log.visible = false
 	_builder.log_taken.connect(_on_builder_took_log)
 	_builder.log_tossed.connect(_on_builder_tossed_log)
+	_builder.chair_set_down.connect(func() -> void: _audio.play_log_drop(_builder.chair_position()))
+	_builder.board_given.connect(_board.give)
 	_woodpile.log_landed.connect(_audio.play_log_drop)
-	_board.closed.connect(_on_board_closed)
+	_board.raised.connect(_capture_mouse.bind(false))
+	_board.lowered.connect(_capture_mouse.bind(true))
 
 	var events: SimEvents = Game.events
 	events.fire_changed.connect(_on_fire_changed)
@@ -126,8 +129,9 @@ func _ready() -> void:
 func _sync() -> void:
 	var state: RunState = Game.sim.state
 	_door.reset()
-	_board.visible = false
+	_board.set_owned(Game.sim.has_feature(BuilderSystem.FEATURE_BOARD))
 	_ever_lit = not _in_opening()
+	_waking = -1.0
 	_eye = seat_eye
 	_standing = false
 	_set_look(PovView.look_at(seat_eye, home_target))
@@ -149,10 +153,14 @@ func _process(delta: float) -> void:
 	var can_gather := ForestSystem.can_gather(sim)
 	_door.update_light(can_gather, delta)
 
-	var free := _ever_lit and not _board.visible and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	_board.set_light(_rig.shown_level() / FireSystem.Level.ROARING)
+	var free := _ever_lit and not _board.is_raised() and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if free:
 		_walk(delta)
-	_eye.y = move_toward(_eye.y, stand_height if _standing else seat_eye.y, rise_speed * delta)
+	if _waking >= 0.0:
+		_wake(delta)
+	else:
+		_eye.y = move_toward(_eye.y, stand_height if _standing else seat_eye.y, rise_speed * delta)
 	_set_look(_look)
 
 	# 开场黑屏时什么都不亮，只靠风声；生过火以后，准星对着的东西当下点了能成才亮。
@@ -168,7 +176,7 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _board.visible:
+	if _board.is_raised():
 		return
 	var click := event as InputEventMouseButton
 	if click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
@@ -176,7 +184,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# 鼠标放开过的话，这一下只是把它收回来，不算点了什么。
 			_capture_mouse(true)
 			return
-		_on_click()
+		_on_click(click.position)
 		return
 	var motion := event as InputEventMouseMotion
 	if motion != null and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -217,10 +225,10 @@ func _ready_to_use(area: Area3D, can_gather: bool) -> bool:
 
 ## 她愿意帮忙了，而且手上没在忙。
 func _builder_ready() -> bool:
-	return Game.sim.state.builder_level == BuilderSystem.Level.HELPING and not _builder.busy()
+	return BuilderSystem.can_talk(Game.sim) and not _builder.busy()
 
 
-func _on_click() -> void:
+func _on_click(at: Vector2) -> void:
 	var sim: Simulation = Game.sim
 	var hit := _pick() if _ever_lit else null
 	if hit == _door_area and sim.has_feature(ForestSystem.FEATURE):
@@ -228,10 +236,9 @@ func _on_click() -> void:
 	elif hit == _pile_area:
 		_woodpile.show_count()
 	elif hit == _talk_area and _builder_ready():
-		_board.open()
-		_capture_mouse(false)
+		sim.act(BuilderSystem.CMD_TALK)
 	elif sim.state.fire == FireSystem.Level.DEAD:
-		_light()
+		_light(at)
 	elif hit == _fire_area:
 		_stoke()
 
@@ -250,16 +257,32 @@ func _walk(delta: float) -> void:
 	_eye = PovView.walk(_eye, input, _look.x, walk_speed * delta, obstacles, room_bounds)
 
 
-func _light() -> void:
+## at 是这一下点在屏幕上的像素位置。
+func _light(at: Vector2) -> void:
 	if Game.sim.act(FireSystem.CMD_LIGHT) != Simulation.OK:
 		# 黑着又没柴的时候什么都不发生。能做的只剩出门，门在亮着，玩家转头就能看见。
 		return
-	if not _ever_lit:
-		# 第一次生火：这时候屋里还是黑的，头怎么转玩家都看不见。等火亮起来，它已经在准星上了。
-		_set_look(PovView.look_at(_eye, _fire_point.global_position))
-		_ever_lit = true
-		_capture_mouse(true)
+	if not _ever_lit and _waking < 0.0:
+		# 第一次生火：屋里还是黑的，先悄悄转头，让火正好亮在玩家点的地方；
+		# 火亮起来以后再慢慢转回来，火落到屏幕正中才有准星、交出鼠标。
+		var screen := get_viewport().get_visible_rect().size
+		_set_look(OpeningView.look_for(OpeningView.to_ndc(at, screen), _eye, _fire_point.global_position,
+			_camera.fov, screen.x / screen.y))
+		_wake_from = _look
+		_waking = 0.0
 	_audio.play_ignite()
+
+
+## 第一次生火后的过渡：火先在玩家点的地方亮一会儿，再转头把它挪到屏幕正中，然后交出鼠标。
+func _wake(delta: float) -> void:
+	_waking += delta
+	var progress := (_waking - wake_delay) / wake_seconds
+	_look = PovView.blend(_wake_from, PovView.look_at(_eye, _fire_point.global_position), progress)
+	if progress < 1.0:
+		return
+	_waking = -1.0
+	_ever_lit = true
+	_capture_mouse(true)
 
 
 func _stoke() -> void:
@@ -287,10 +310,6 @@ func _gather() -> void:
 	_woodpile.deliver(before, _door_area.global_position, delivery_delay)
 
 
-func _on_board_closed() -> void:
-	_capture_mouse(true)
-
-
 ## 门关上时柴才落到柴堆上。
 func _on_door_closed() -> void:
 	_audio.play_door()
@@ -313,18 +332,14 @@ func _on_builder_changed(level: int) -> void:
 ## 叙事节拍。大部分节拍已经由别的信号演出来了（火势、建造者等级、库存），这里只接住没有专门信号的那几个。
 func _on_narrated(key: StringName, args: Dictionary) -> void:
 	_log.push(NarrationLog.compose(key, args))
-	if SPEECH.has(key):
-		if key == &"builder.shivers":
-			_builder.say(tr(SPEECH[key]), MUMBLE_VOICE, mumble_volume)
-		else:
-			_builder.say(tr(SPEECH[key]))
-	match key:
-		&"builder.stokes":
-			_on_builder_stokes()
-		&"build.too_cold":
-			_builder.shiver_once()
-		&"build.not_enough":
-			_builder.shake_head()
+	_lines.react(_builder, key, mumble_volume, Game.sim)
+	if key == &"builder.stokes":
+		_on_builder_stokes()
+	elif key == &"builder.gives_board":
+		# 她走到主角跟前，递到手里的那一刻板子才出现在画面右下角。
+		var here := Vector3(_eye.x, 0.0, _eye.z)
+		if not _builder.hand_over(here, tr(BuilderLines.HAND_OVER)):
+			_board.give()
 
 
 ## 她往火里添了一根柴。模拟里木头已经少了，画面上让她走过去拿、再丢进火里。

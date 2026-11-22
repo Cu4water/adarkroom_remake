@@ -3,7 +3,7 @@ extends Node3D
 ## 柴堆。木头的存量就是柴堆上摆了几根柴（按 WoodpileView 的门槛），平时屏幕上不显示数字。
 ##
 ## 出门拾柴时，柴从门口一根根扔进来落到柴堆上；建造者去拿柴时，等她弯腰拿起的那一刻才少一根。
-## 对准柴堆点一下，柴堆上方浮起一个数字，是现在有多少木头；数字散掉之前再点不起作用。
+## 对准柴堆点一下，柴堆上方像用烧红的木棍在空中写出现在有多少木头；字散掉之前再点不起作用。
 
 signal log_landed(at: Vector3)
 
@@ -14,12 +14,9 @@ const WOOD := &"wood"
 @export var delivery_gap := 0.2
 @export var delivery_arc := 0.55
 @export var delivery_most := 4
-## 点柴堆时浮起的数字：离柴堆顶多高出现、再往上飘多少、多久散掉、多大。
-@export var count_height := 0.28
-@export var count_rise := 0.3
-@export var count_seconds := 1.8
-@export var count_pixel_size := 0.0028
-@export var count_color := Color(1.0, 0.9, 0.74)
+## 点柴堆时用火星写出来的数：离柴堆顶多高、字多高。
+@export var count_height := 0.26
+@export var count_glyph_height := 0.15
 
 ## 建造者去拿柴的路上为 true：柴堆先不变。
 var held := false
@@ -28,7 +25,8 @@ var held := false
 var _logs: Array[Node3D] = []
 ## 正在空中飞向柴堆的柴：柴堆下标 → 飞着的那根。落地之前柴堆上那个位置先空着。
 var _incoming: Dictionary[int, Node3D] = {}
-var _count: Label3D
+var _count: EmberWriting
+var _writes := 0
 
 
 ## 找到 hut.glb 里的每一根柴。
@@ -94,37 +92,23 @@ func counting() -> bool:
 	return _count != null
 
 
-## 在柴堆上方浮起现在的木头数。数字还没散掉时什么都不做，返回 false。
+## 在柴堆上方用火星写出现在的木头数。上一次写的还没散掉时什么都不做，返回 false。
 func show_count() -> bool:
 	if _count != null:
 		return false
-	_count = Label3D.new()
-	_count.text = str(wood())
-	_count.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_count.pixel_size = count_pixel_size
-	_count.font_size = 72
-	_count.outline_size = 14
-	_count.modulate = count_color
-	_count.outline_modulate = Color(0.08, 0.05, 0.03, 0.85)
-	_count.shaded = false
-	_count.double_sided = true
+	_writes += 1
+	_count = EmberWriting.new()
+	_count.height = count_glyph_height
 	add_child(_count)
-	var start := _top() + Vector3.UP * count_height
-	_count.global_position = start
-	var label := _count
-	var tween := create_tween().set_parallel(true)
-	tween.tween_property(label, ^"global_position", start + Vector3.UP * count_rise, count_seconds) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, ^"modulate:a", 0.0, count_seconds * 0.55).set_delay(count_seconds * 0.45)
-	tween.tween_property(label, ^"outline_modulate:a", 0.0, count_seconds * 0.55).set_delay(count_seconds * 0.45)
-	tween.chain().tween_callback(_on_count_gone.bind(label))
+	_count.global_position = _top() + Vector3.UP * count_height
+	_count.finished.connect(_on_count_gone.bind(_count))
+	_count.write(str(wood()), _writes)
 	return true
 
 
-func _on_count_gone(label: Label3D) -> void:
-	if _count == label:
+func _on_count_gone(writing: EmberWriting) -> void:
+	if _count == writing:
 		_count = null
-	label.queue_free()
 
 
 ## 柴堆最高那根柴的顶上正中。

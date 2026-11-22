@@ -119,3 +119,27 @@ func test_the_chair_faces_the_fire_and_she_sits_onto_it(t: TestCase) -> void:
 	t.ok((layout["put"] as Vector3).distance_to(FIRE) > chair.distance_to(FIRE), "放椅子时她站在椅子后面")
 	t.ok((layout["around"] as Vector3).length() < chair.length(), "绕到前面时走靠屋子中间那一侧")
 	t.done()
+
+
+func test_she_walks_around_the_hearth_not_through_it(t: TestCase) -> void:
+	var seat := Vector3(1.2, 0.0, -1.02)
+	var player := Vector3(-0.9, 0.0, -1.6)
+	var route := BuilderPose.route_around(seat, player, FIRE, 0.7)
+	t.ok(route.size() > 1, "火塘挡在中间，要先绕一下")
+	t.eq(route[-1], player, "最后到要去的地方")
+	for leg: int in route.size():
+		var from: Vector3 = seat if leg == 0 else route[leg - 1]
+		var hit := Geometry2D.segment_intersects_circle(Vector2(from.x, from.z), Vector2(route[leg].x, route[leg].z),
+			Vector2(FIRE.x, FIRE.z), 0.6)
+		t.ok(hit < 0.0, "第 %d 段穿过了火塘" % leg)
+	var clear := BuilderPose.route_around(seat, Vector3(1.5, 0.0, 0.5), FIRE, 0.7)
+	t.eq(clear.size(), 1, "火塘不挡路就直接走")
+	t.done()
+
+
+func test_she_stops_an_arm_length_away(t: TestCase) -> void:
+	var stop := BuilderPose.stop_short(Vector3(1.0, 0.0, 0.0), Vector3(-2.0, 0.0, 0.0), 0.9)
+	t.ok(stop.is_equal_approx(Vector3(-1.1, 0.0, 0.0)), "停在离主角 0.9 米的地方：%s" % stop)
+	var near := BuilderPose.stop_short(Vector3(0.5, 0.0, 0.0), Vector3(0.0, 0.0, 0.0), 0.9)
+	t.ok(near.is_equal_approx(Vector3(0.5, 0.0, 0.0)), "本来就够近就不动")
+	t.done()
