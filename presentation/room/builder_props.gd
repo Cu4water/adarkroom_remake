@@ -14,6 +14,8 @@ var lift := 0.0
 
 var _chair: Node3D
 var _board: Node3D
+## 要她拿着板子。板子真正露出来要等两手抬到身前。
+var _board_wanted := false
 var _log: Node3D
 var _home := Transform3D.IDENTITY
 var _by_fire := Transform3D.IDENTITY
@@ -71,13 +73,16 @@ func empty_hands(parent: Node3D) -> void:
 
 
 ## 递板子时手上的那块板子。第一次用时做出来，挂在 parent 下面。
+## 要拿出来时先不露面，等 follow 看到两手抬到身前了再出现。
 func show_board(parent: Node3D, shown: bool) -> void:
+	_board_wanted = shown
 	if _board == null and shown:
 		_board = _make_board()
 		parent.add_child(_board)
 		_board.top_level = true
-	if _board != null:
-		_board.visible = shown
+		_board.visible = false
+	if _board != null and not shown:
+		_board.visible = false
 
 
 ## 每帧调用：body 是她现在的全局变换，hands 是两手正中的全局位置。
@@ -93,8 +98,12 @@ func follow(body: Transform3D, hands: Vector3) -> void:
 		origin.y = lerpf(_floor.origin.y, held.origin.y, rise)
 		_chair.global_transform = Transform3D(
 			Basis(_floor.basis.get_rotation_quaternion().slerp(held.basis.get_rotation_quaternion(), weight)), origin)
-	if _board != null and _board.visible:
-		_board.global_transform = Transform3D(facing * BuilderPose.OFFER.basis, hands + facing * BuilderPose.OFFER.origin)
+	if _board != null and _board_wanted:
+		if not _board.visible and (hands - body.origin).dot(facing.z) >= BuilderPose.OFFER_REVEAL:
+			_board.visible = true
+		var at := hands + facing * BuilderPose.OFFER.origin
+		at += facing.z * maxf(BuilderPose.OFFER_CLEAR - (at - body.origin).dot(facing.z), 0.0)
+		_board.global_transform = Transform3D(facing * BuilderPose.OFFER.basis, at)
 
 
 func chair_position(fallback: Vector3) -> Vector3:

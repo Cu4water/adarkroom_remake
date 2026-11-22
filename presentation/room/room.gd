@@ -49,6 +49,10 @@ const GLOW_SHADER := preload("res://presentation/room/shaders/interact_glow.gdsh
 @export var door_light_energy := 2.2
 ## 门开到多大，弧度。负数是朝屋里开。
 @export var door_swing := -0.95
+## 建造者撞门进来时门开到多大、开着停多久（秒）。门朝屋里开，门扇扫过的地方就是她进门的路，
+## 所以要开到贴着门轴那一侧；她走过门扇、还没倒下时就关，倒地时身子会往门轴那边摊开。
+@export var arrive_door_swing := -1.5
+@export var arrive_door_hold := 3.2
 ## 拾柴时门开到一半就开始往里扔柴，这是第一根出手的时刻（秒）。
 @export var delivery_delay := 0.45
 ## 建造者喃喃自语时的音量（分贝）。
@@ -325,7 +329,7 @@ func _on_builder_changed(level: int) -> void:
 	if level == BuilderSystem.Level.COLLAPSED:
 		# 门被撞开，风灌进来，一个人影踉跄进门，冲着火倒在地上。
 		_audio.gust(1.0, 1.4)
-		_door.swing(0.22, 1.8, 1.0)
+		_door.swing(0.22, arrive_door_hold, 1.0, arrive_door_swing)
 	_builder.set_level(level)
 
 

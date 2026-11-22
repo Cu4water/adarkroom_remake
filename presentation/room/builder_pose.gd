@@ -61,6 +61,8 @@ const TRANSITIONS: Array[Array] = [
 	[ANIM_PICKUP, ANIM_WALK, 0.35, false],
 	[ANIM_PICKUP, ANIM_IDLE, 0.4, false],
 	[ANIM_WALK, ANIM_WALK_CARRY, 0.3, false],
+	# 递板子：站起来直接端着板子走，不先垂着手走两步。
+	[ANIM_IDLE, ANIM_WALK_CARRY, 0.35, false],
 	[ANIM_WALK_CARRY, ANIM_WALK, 0.3, false],
 	[ANIM_WALK_CARRY, ANIM_PICKUP, 0.3, false],
 	[ANIM_WALK_CARRY, ANIM_IDLE, 0.3, false],
@@ -101,7 +103,12 @@ const WALK_AROUND := 0.5
 ## 椅面朝她、靠背在外侧。坐面高 0.43 米，托在坐面底下；抱得再低、再近，迈步时膝盖和外套下摆会顶到椅子腿。
 const CARRY := Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -0.3, 0.26))
 ## 递板子时，板子相对她两手正中的位置：竖着举在胸前，正面朝外，上沿往她那边斜一点。
-const OFFER := Transform3D(Basis(Vector3.RIGHT, -0.35), Vector3(0.0, 0.05, 0.06))
+## walk_carry 里手指往前弯，指尖伸到两手正中前面九厘米，板子要在指尖前面，手指才是托在板子背面。
+const OFFER := Transform3D(Basis(Vector3.RIGHT, -0.35), Vector3(0.0, 0.05, 0.17))
+## 板子正中至少在她身前多远（米）。手垂着时两手正中在身子里，板子不能跟着陷进外套。
+const OFFER_CLEAR := 0.25
+## 两手正中抬到她身前这么远，板子才出现在手里，看起来是她刚把它拿出来端平。
+const OFFER_REVEAL := 0.09
 ## 递板子时她走到离主角多远停下。
 const OFFER_DISTANCE := 1.1
 

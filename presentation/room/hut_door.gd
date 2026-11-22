@@ -48,11 +48,12 @@ func update_light(can_go_out: bool, delta: float) -> void:
 	_light.visible = _light.light_energy > 0.001
 
 
-## 开门，停一会儿，再关上。
-func swing(open_seconds: float, hold_seconds: float, close_seconds: float) -> void:
+## 开门，停一会儿，再关上。angle 是这一次开到多大（弧度，负数朝屋里开），不给就开到默认的 swing。
+func swing(open_seconds: float, hold_seconds: float, close_seconds: float, angle := NAN) -> void:
 	is_open = true
 	# 模型里门本来就虚掩着一点，这里从那个角度接着转到 swing。
-	var extra := Basis(Vector3.UP, _swing - _rest.basis.get_euler().y)
+	var target := _swing if is_nan(angle) else angle
+	var extra := Basis(Vector3.UP, target - _rest.basis.get_euler().y)
 	var open := _rest * Transform3D(extra, Vector3.ZERO)
 	if _tween != null:
 		_tween.kill()

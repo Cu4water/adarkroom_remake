@@ -26,9 +26,10 @@ signal board_given
 
 const ChairAt := BuilderProps.ChairAt
 
-## 地板高度都是 0。她在门口出现，踉跄着往屋里走几步，冲着火的方向瘫倒。
+## 地板高度都是 0。她在门洞里出现，踉跄着往屋里走几步，冲着火的方向瘫倒。
+## 门轴在门洞左边、朝屋里开，她走门洞中间偏右，离开着的门扇远一点；踉跄时胳膊会甩到身子左边三十多厘米。
 ## 躺下时身子从脚往后伸出一米多，所以倒的地方离后墙和门扇都要留出空。
-@export var door_spot := Vector3(-1.1, 0.0, -2.1)
+@export var door_spot := Vector3(-0.98, 0.0, -2.5)
 @export var collapse_spot := Vector3(-1.05, 0.0, -1.2)
 ## 椅子一开始在右墙边的暗处，正面朝屋里；她站在它前面弯腰拿起来。站的地方要让弯下去的膝盖碰不到坐面。
 @export var chair_home := Vector3(2.35, 0.0, 0.35)
@@ -189,6 +190,8 @@ func hand_over(target: Vector3, line: String) -> bool:
 	var seat: Vector3 = layout["seat"]
 	var stop := BuilderPose.stop_short(seat, target, BuilderPose.OFFER_DISTANCE)
 	_steps.append({"until": BuilderPose.ANIM_IDLE})
+	# 起身时手还搭在身前，要等开始端着走、手从身侧抬起来时板子才出现。
+	_steps.append({"until": BuilderPose.ANIM_WALK_CARRY})
 	_steps.append({"board": true})
 	for point: Vector3 in BuilderPose.route_around(seat, stop, fire_center, hearth_radius):
 		_steps.append({"to": point, "anim": BuilderPose.ANIM_WALK_CARRY})
