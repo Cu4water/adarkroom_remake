@@ -117,8 +117,9 @@ remake/
     main.tscn            真正的入口场景：舞台切换 + UI 层 + 统一后处理    待建
     stages/              每个地点一个舞台                                待建（room 暂在 presentation/room）
     directors/           镜头、光照、音频、节拍导演                       待建
-    ui/                  Theme、日志、按钮、面板                          待建
-    common/              共享的着色器、环境、材质                         待建
+    ui/                  Theme、日志、按钮、面板                          部分已有（建造者的数据板）
+    common/              共享的着色器、环境、材质、NPC 头顶字幕            部分已有（NpcSpeech）
+    audio/               代码合成的声音：占位音效、NPC 说话声（Babble）     已有
     debug/               调试台                                          已有
   assets/                从 Art 导出的运行时素材（glb、贴图、音频）         已有
   tests/                 测试，test_*.gd                                 已有
@@ -167,6 +168,7 @@ func _do(sim: Simulation, args: Dictionary) -> StringName: ...
 - 系统不持有 `Simulation` 的引用，也没有成员变量（常量除外）。需要记住的东西一律放进状态。这样存档只需要序列化状态。
 - 一个系统负责一块规则。当前有 `FireSystem`、`BuilderSystem`、`ForestSystem`、`VillageSystem`。
 - 指令处理函数先检查所有前置条件，任何一条不满足就返回原因、不改任何状态；全部满足之后再扣费、改状态、发事件。不允许"改了一半失败"。
+- 表现层要提前知道"现在点了能不能成"（决定亮不亮、数据板上哪项是暗的）时，系统提供只读的静态查询函数，例如 `FireSystem.can_tend`、`ForestSystem.can_gather`、`VillageSystem.can_build`。指令处理函数复用同一个查询，保证两边答案一致；表现层不自己重写规则。
 
 ### 3.3 时间（已有）
 
@@ -316,7 +318,7 @@ sequenceDiagram
 
 | 导演 | 职责 |
 | --- | --- |
-| 镜头导演 | 开场"火堆停在鼠标下"的运镜（现在在 `OpeningView`），舞台之间的转场；二周目可跳过 |
+| 镜头导演 | 第一章的主角视角（现在在 `PovView`：转头、走动和避障、看向火、高亮亮度），舞台之间的转场；二周目可跳过 |
 | 光照导演 | 火势决定光照半径；物体挂"显现阈值"，光照不到就看不清。光就是信息闸门 |
 | 音频导演 | 总线划分 Master / Music / Ambience / SFX / UI；把模拟状态映射到音乐分层（`AudioStreamInteractive`、`AudioStreamSynchronized`）和环境声（风声随火势变化） |
 | 节拍导演 | 把每个叙事节拍分派给光照、音频、人物动画和舞台里的物件。按 `docs/narrative.md` 第 4.5 节的表登记"节拍 → 表现"，表里没有登记的节拍在调试版里报警告。文字日志（现在是 `NarrationLog`）只在无障碍模式下启用，默认关闭 |
@@ -329,7 +331,8 @@ sequenceDiagram
 
 - 全部 UI 用同一个 `Theme` 资源。
 - 游戏输入走 `InputMap` 动作，不直接判断按键码，为手柄留余地。开发快捷键（例如 F9 重开）只在 `OS.is_debug_build()` 下生效。
-- 正式画面不显示数值，也尽可能不显示文字。数值和叙述文字只在调试台里看。屏幕 UI 只剩系统菜单（设置、存档、退出）。
+- 正式画面不显示数值，也尽可能不显示文字。数值和叙述文字只在调试台里看。屏幕 UI 只剩系统菜单（设置、存档、退出），以及制作人批准的例外：NPC 头顶字幕、柴堆浮起的木头数、建造者的数据板（见 `docs/art.md` 8.1）。
+- 第一章的走动已经走 `InputMap`（`move_forward`、`move_back`、`move_left`、`move_right`，默认 WASD 和方向键）。
 
 ### 5.5 调试台（已有）
 

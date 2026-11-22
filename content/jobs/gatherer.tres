@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="JobDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://sim/defs/job_def.gd" id="1_def"]
+
+[resource]
+script = ExtResource("1_def")
+id = &"gatherer"
+is_default = true
+period = 10.0
+stores = Dictionary[StringName, int]({
+&"wood": 1
+})

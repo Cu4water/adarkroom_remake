@@ -65,12 +65,14 @@ Art/
 | 集合 | 内容 |
 | --- | --- |
 | `01_Architecture` | 地板、墙面、屋顶木梁、门窗、露砖补丁、窗外远景剪影 |
-| `02_Fire_Hearth` | 核心交互和光源区：石炉膛、炭床、燃烧的木柴、分层火焰、火星、吊锅、排烟罩、柴堆 |
+| `02_Fire_Hearth` | 核心交互和光源区：石炉膛、炭床、燃烧的木柴、分层火焰、火星、柴堆。火塘是开放的，不做烟罩和烟道 |
 | `03_Builder_Corner` | 角色叙事区：窗下木凳、角落毛皮铺垫、毯子、行囊 |
 | `04_Workbench_And_Stores` | 功能与库存表现区：围裙架、工作台、正在造的东西（如陷阱）、货架、麻袋、货箱 |
 | `05_Foreground_Desk` | 前景桌和贴身道具 |
 | `06_Lighting_And_Camera` | 光源、体积雾、相机，只用于预览，不导出 |
-| `07_Builder_2D` | 建造者的 2D 纸片和骨骼 |
+| `07_Builder` | 建造者的 3D 风格化模型与 65 根标准人形骨架，由 `export_builder_glb.py` 打包开源 CC0 骨骼动画导出到 `remake/assets/builder/builder.glb` |
+| `07_Builder_2D` | 旧版 2D 纸片建造者存档，不导出 |
+| `08_Chair` | 建造者搬到火边坐的木椅，`Chair_Root` 空物体下 13 个倒角方块零件，全部用 `Mat_Wood_Desk`。由 `Art/scripts/build_chair_model.py` 生成，`export_chair_glb.py` 合并成一个 `Chair` 节点导出到 `remake/assets/chair/chair.glb`；`export_hut_glb.py` 跳过这个集合 |
 | `90_Later_Reveals` | 还没到揭示时机的东西，默认不导出 |
 
 新场景沿用"两位数字前缀 + 英文名"的集合命名。`06` 永远是灯光和相机，`90` 以后留给延后揭示的内容。
@@ -150,14 +152,15 @@ Blender 预览用 `AgX`（Medium High Contrast），Godot 用 `AgX`，两边看�
 
 ---
 
-## 6. 2D 纸片人物（已定，以建造者为例）
+## 6. 3D 人物与骨骼动画（已定，以建造者为例）
 
-- 立绘：透明 PNG，边缘做过去白边处理，放在暗背景上检查没有白边锯齿。建造者的立绘是 `464 × 1097`。
-- 网格：按真人比例建细分平面（建造者 `12 × 24` 段），原点锚定在脚底。
-- 材质：哑光、受光的水粉材质，Alpha Clip，能投下轮廓阴影。不用自发光。
-- 骨骼：少量 2D 骨骼（建造者有 `Root`、`Pelvis`、`Torso`、`Head`、`Arm_Wood`），刷平滑权重，只做呼吸起伏、侧头、抬手添柴这类轻量动画。
-- 脚底加一个柔和渐变的接触阴影（`Builder_ContactShadow`），让纸片踩在地上。
-- 放进场景时注意和道具的穿插（例如不和拨火棍重叠）。
+- 尺度：人物原点在脚底 `Z = 0`，导出缩放严格为 `(1, 1, 1)`，建造者头顶高约 `1.66m`（含兜帽约 `1.70m`）。
+- 骨架：65 根标准 UE/Godot 人形骨骼（`root`、`pelvis`、`spine_01..03`、`neck_01`、`Head`、`upperarm_l/r`、`hand_l/r`、`thigh_l/r` 等），来自 Quaternius Universal Animation Library 2 的 `Mannequin_F`（CC0 1.0）。
+- 动画：由 `export_builder_glb.py` 从 Quaternius Universal Animation Library 1 & 2（CC0 1.0 Public Domain，位于仓库外 `Art/third_party/quaternius/`）精选 11 条动作（UAL1：`idle`、`walk`、`sit_down`、`sitting`、`stand_up`；UAL2：`idle_cold`、`walk_carry`、`stagger`、`get_up`、`pickup`、`feed`），再从 `get_up`（源 `LayToIdle`）里截出 2 段：`lying`（第 0 帧静止）、`collapse`（整段倒放），共 13 条；等比缩放位置通道并清除根水平位移，随 `builder.glb` 的 NLA 轨道导出。动画名就是游戏里动画状态机的节点名，改名要同时改 `presentation/room/builder_pose.gd`。摇头是程序化叠加，不是骨骼动画。
+- 坐姿：`sitting` 里骨盆在人物原点后方约 `0.31m`、高约 `0.50m`。椅子坐面高 `0.43m`，摆椅子时让坐面正中对准这个位置（`BuilderPose.SEAT_BACK`、`seat_layout`）。
+- 椅子契约：`chair.glb` 里只有一个 `Chair` 节点，原点在四条腿底面正中、`Y = 0`，正面朝 Godot `+Z`（Blender `-Y`），靠背在 `-Z` 一侧，总高约 `0.9m`。`remake/tests/test_chair_asset.gd` 检查这些。
+- 网格与材质：由 `Art/scripts/build_builder_model.py` 生成（共 11 个部件，含右手可显隐劈柴 `Builder_HeldLog`），烘焙几何 AO 到顶点色 `G` 通道、下摆脏旧到 `B` 通道，导出保留 `Mat_Builder_*` 材质名，进 Godot 后由 `presentation/room/builder_materials.gd` 替换为手绘水粉 PBR 着色器（`builder_surface.gdshader`）。
+- 契约校验：`remake/tests/test_builder_asset.gd` 检查核心骨骼、全部 13 条动画轨道、11 个部件、脚底高度与材质名。
 
 ---
 

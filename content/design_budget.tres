@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="DesignBudget" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://sim/defs/design_budget.gd" id="1_budget"]
+
+[resource]
+script = ExtResource("1_budget")

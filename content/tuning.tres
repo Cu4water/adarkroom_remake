@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="Tuning" format=3 uid="uid://crvj605q5r0tv"]
+
+[ext_resource type="Script" uid="uid://71nu1yjtyrp6" path="res://sim/tuning.gd" id="1_tuning"]
+
+[resource]
+script = ExtResource("1_tuning")
