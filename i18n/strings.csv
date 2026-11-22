@@ -25,7 +25,7 @@ builder.chat,建造者抬头看了一眼，又低头烤火。
 builder.say.gives_board,拿着它吧。我能做的都画在上面了。
 builder.say.helps,我可以帮忙。我会建东西。
 builder.say.plan.trap,我能做陷阱。外头兴许还有活着的野兽。
-builder.say.plan.cart,我还能做一辆货车。运木头用。
+builder.say.plan.cart,我还能做一辆货车用来运木头。
 builder.say.built.trap,陷阱越多，猎到的东西越多。
 builder.say.built.cart,货车好了。能多拉些木头。
 builder.say.not_enough,木头不够了。
