@@ -1,0 +1,44 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+/ios/
+/web/
+/linuxbsd/
+/macos/
+/windows/
+/build/
+/builds/
+/dist/
+/export/
+
+# GDScript / 资源（一般应提交；此处仅忽略明显临时文件）
+*.tmp
+*.bak
+*.orig
+
+# C# / Mono（若将来启用）
+.mono/
+data_*/
+mono_crash.*/
+
+# 系统与编辑器杂项
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*~
+*.swp
+*.swo
+
+# IDE（可按团队习惯删掉某段以提交共享配置）
+.idea/
+*.sublime-workspace
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+addons/godot_mcp/
