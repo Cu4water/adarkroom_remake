@@ -68,6 +68,8 @@ const TRANSITIONS: Array[Array] = [
 	[ANIM_WALK_CARRY, ANIM_FEED, 0.3, false],
 	[ANIM_FEED, ANIM_WALK, 0.35, false],
 	[ANIM_FEED, ANIM_IDLE, 0.4, false],
+	# 放下椅子：半蹲着松手，抱着胳膊直起身。
+	[ANIM_FEED, ANIM_IDLE_COLD, 0.5, false],
 	# 坐到火边的椅子上，起身。
 	[ANIM_IDLE, ANIM_SIT_DOWN, 0.3, false],
 	[ANIM_IDLE_COLD, ANIM_SIT_DOWN, 0.3, false],
@@ -82,15 +84,22 @@ const PICKUP_GRAB := 0.33
 const PICKUP_DONE := 0.72
 const FEED_RELEASE := 0.5
 const FEED_DONE := 0.86
+## 放椅子借用 feed 的前一小段：蹲到一半、手降到坐面高度时就松手，不蹲到底。
+const FEED_SET_DOWN := 0.17
 
 ## 坐姿动画里骨盆在人物原点后方多远（米），椅子坐面正中要对准它。量自 builder.glb 的 sitting。
 const SEAT_BACK := 0.31
-## 放椅子时她站在椅子后面多远，放好以后从椅子侧面多远绕到前面。
-const PUT_BEHIND := 0.5
+## 椅子占的地面（在椅子自己的朝向里，正面是 +Z）：左右各半宽，靠背一侧到 BACK，正面到 FRONT。量自 chair.glb。
+const CHAIR_HALF_WIDTH := 0.21
+const CHAIR_BACK := 0.31
+const CHAIR_FRONT := 0.2
+## 放椅子时她站在椅子后面多远。pickup 弯腰时头和胸口会探到身前四十厘米，站近了就扎进靠背里。
+const PUT_BEHIND := 0.75
+## 放好以后绕到前面：贴着椅子靠屋子中间的一侧走，离椅子正中这么远，先到侧后方，再到侧前方。
 const WALK_AROUND := 0.5
-## 抱着椅子时，椅子相对她两手正中的位置（在她自己的朝向里）：两手扣住坐面靠她的一边，
-## 椅面朝她、靠背在外侧。坐面高 0.43 米，所以椅子原点在手下方这么多。
-const CARRY := Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -0.45, 0.2))
+## 抱着椅子时，椅子相对她两手正中的位置（在她自己的朝向里）：两手托着坐面靠她的一边，
+## 椅面朝她、靠背在外侧。坐面高 0.43 米，托在坐面底下；抱得再低、再近，迈步时膝盖和外套下摆会顶到椅子腿。
+const CARRY := Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -0.3, 0.26))
 ## 递板子时，板子相对她两手正中的位置：竖着举在胸前，正面朝外，上沿往她那边斜一点。
 const OFFER := Transform3D(Basis(Vector3.RIGHT, -0.35), Vector3(0.0, 0.05, 0.06))
 ## 递板子时她走到离主角多远停下。
@@ -191,17 +200,21 @@ static func yaw_towards(from: Vector3, to: Vector3) -> float:
 ## 椅子摆在 chair 处、正面朝着 fire 时，几个要用到的位置（地面高度都是 0）：
 ##   "seat"   她坐下前站的地方：椅子前方 SEAT_BACK 处，转身坐下骨盆正好落在坐面上
 ##   "put"    她抱着椅子放下时站的地方：椅子后方
-##   "around" 放好椅子以后从侧面绕到前面经过的地方，在靠屋子中间的那一侧
+##   "around" 放好椅子以后绕到前面依次经过的两个点（Array[Vector3]），在靠屋子中间的那一侧
 ##   "yaw"    椅子和坐着的她朝向的偏航角
 static func seat_layout(chair: Vector3, fire: Vector3) -> Dictionary:
 	var forward := Vector3(fire.x - chair.x, 0.0, fire.z - chair.z).normalized()
 	var side := Vector3(forward.z, 0.0, -forward.x)
 	if side.dot(-chair) < 0.0:
 		side = -side
+	var around: Array[Vector3] = [
+		chair + side * WALK_AROUND - forward * WALK_AROUND,
+		chair + side * WALK_AROUND + forward * WALK_AROUND,
+	]
 	return {
 		"seat": chair + forward * SEAT_BACK,
 		"put": chair - forward * PUT_BEHIND,
-		"around": chair + side * WALK_AROUND,
+		"around": around,
 		"yaw": atan2(forward.x, forward.z),
 	}
 

@@ -1,8 +1,8 @@
 class_name BuildBoard
 extends Control
 ## 建造者递过来的那块板子（参考《铁巢重炮》的剪贴板）：一块木夹板夹着一张纸，纸上是她用铅笔画的
-## 能造的东西。拿到以后平时斜拿在画面右下角，只露出一角；按 Tab 举到画面正中放大，放出鼠标，
-## 再按 Tab、Esc、右键或者点板子外面就放回去。
+## 能造的东西。拿到以后平时斜拿在画面右下角，只露出一角，角上夹着一片画了 Tab 键的签条；
+## 按住 Tab 举到画面正中放大，放出鼠标，一松手就放回去。
 ##
 ## 纸上：顶上是手头有多少木头；下面每样东西一行，一张小图、要多少木头、已有几个 / 最多几个。
 ## 现在造得成的写得深，造不成的淡；造满了的划掉。点一样就让模拟去造（village.build）。
@@ -30,9 +30,13 @@ const CLIPBOARD_ART := "res://assets/ui/board/clipboard.png"
 @export var held_scale := 0.42
 @export var held_tilt := 0.3
 @export var held_peek := Vector2(140.0, 150.0)
-## 举起来时斜多少，以及动作多快。
+## 举起来时斜多少，以及动作多快。松开 Tab 时放回去得快，不拖泥带水。
 @export var raised_tilt := -0.03
 @export var move_seconds := 0.3
+@export var release_seconds := 0.1
+## 左上角那片签条：宽、高（夹板像素），以及压在夹板底下的那一截有多长。
+@export var tab_size := Vector2(150.0, 100.0)
+@export var tab_tuck := 24.0
 @export var ink := Color(0.2, 0.18, 0.16)
 @export var paper := Color(0.86, 0.8, 0.67)
 @export var wood := Color(0.38, 0.25, 0.15)
@@ -41,6 +45,7 @@ const CLIPBOARD_ART := "res://assets/ui/board/clipboard.png"
 
 var _pose := Pose.AWAY
 var _sheet: Control
+var _tab: Control
 var _wood_number: HandNumber
 var _entries: Dictionary[StringName, Entry] = {}
 var _tween: Tween
@@ -85,6 +90,13 @@ func _ready() -> void:
 	_sheet.mouse_filter = Control.MOUSE_FILTER_STOP
 	_sheet.draw.connect(_draw_sheet)
 	add_child(_sheet)
+	_tab = Control.new()
+	_tab.position = Vector2(sheet_size.x * 0.06, tab_tuck - tab_size.y)
+	_tab.size = tab_size
+	_tab.show_behind_parent = true
+	_tab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tab.draw.connect(_draw_tab)
+	_sheet.add_child(_tab)
 
 	var margin := MarginContainer.new()
 	margin.position = Vector2(paper_margin.w, paper_margin.x) * sheet_size
@@ -138,6 +150,7 @@ func set_owned(owned: bool) -> void:
 	_pose = Pose.HELD if owned else Pose.AWAY
 	visible = owned
 	_set_interactive(false)
+	_tab.modulate.a = 1.0
 	if owned:
 		_refresh()
 		var held := _held_place()
@@ -159,7 +172,7 @@ func raise() -> void:
 
 func lower() -> void:
 	if _pose == Pose.RAISED:
-		_go(Pose.HELD, move_seconds)
+		_go(Pose.HELD, release_seconds)
 		lowered.emit()
 
 
@@ -169,31 +182,20 @@ func set_light(level: float) -> void:
 	modulate = Color(shade, shade * 0.97, shade * 0.92)
 
 
-func _gui_input(event: InputEvent) -> void:
-	var click := event as InputEventMouseButton
-	if click != null and click.pressed and _pose == Pose.RAISED:
-		# 点到板子外面，就是放回去。
+## 窗口失焦时收不到松开 Tab 的事件，所以每帧再对一下：举着的时候 Tab 已经不按着了就放回去。
+func _process(_delta: float) -> void:
+	if _pose == Pose.RAISED and not Input.is_action_pressed(&"board"):
 		lower()
-		accept_event()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _pose == Pose.AWAY:
+	if _pose == Pose.AWAY or not event.is_action(&"board") or event.is_echo():
 		return
-	if event.is_action_pressed(&"board"):
-		if _pose == Pose.RAISED:
-			lower()
-		else:
-			raise()
-		get_viewport().set_input_as_handled()
-		return
-	if _pose != Pose.RAISED:
-		return
-	var click := event as InputEventMouseButton
-	var right_click := click != null and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT
-	if right_click or event.is_action_pressed(&"ui_cancel"):
+	if event.is_pressed():
+		raise()
+	else:
 		lower()
-		get_viewport().set_input_as_handled()
+	get_viewport().set_input_as_handled()
 
 
 func _go(pose: Pose, seconds: float) -> void:
@@ -207,6 +209,7 @@ func _go(pose: Pose, seconds: float) -> void:
 	_tween.tween_property(_sheet, ^"position", place[0], seconds)
 	_tween.tween_property(_sheet, ^"rotation", place[1], seconds)
 	_tween.tween_property(_sheet, ^"scale", Vector2.ONE * size_scale, seconds)
+	_tween.tween_property(_tab, ^"modulate:a", 0.0 if pose == Pose.RAISED else 1.0, seconds)
 
 
 ## [左上角位置, 旋转]：右下角只露出一角，像斜拿在右手里。
@@ -290,6 +293,39 @@ func _draw_sheet() -> void:
 	metal.set_corner_radius_all(8)
 	_sheet.draw_style_box(metal, clip)
 	_sheet.draw_rect(clip.grow(-6.0), Color(0.42, 0.4, 0.37), false, 2.0)
+
+
+## 签条：一截旧纸从夹板上沿底下露出来，上面用铅笔描了一个键帽，键帽里是 Tab 键的 ↹，不写字。
+func _draw_tab() -> void:
+	var shown := Rect2(Vector2.ZERO, Vector2(tab_size.x, tab_size.y - tab_tuck))
+	var label := StyleBoxFlat.new()
+	label.bg_color = paper.darkened(0.12)
+	label.corner_radius_top_left = 12
+	label.corner_radius_top_right = 12
+	label.shadow_color = Color(0.0, 0.0, 0.0, 0.35)
+	label.shadow_size = 6
+	_tab.draw_style_box(label, Rect2(Vector2.ZERO, tab_size))
+	var pencil := Color(ink, 0.85)
+	var key := shown.grow(-14.0)
+	var key_box := StyleBoxFlat.new()
+	key_box.draw_center = false
+	key_box.border_color = pencil
+	key_box.set_border_width_all(3)
+	key_box.set_corner_radius_all(9)
+	_tab.draw_style_box(key_box, key)
+	var left := key.position.x + key.size.x * 0.22
+	var right := key.end.x - key.size.x * 0.22
+	var upper := key.position.y + key.size.y * 0.28
+	var lower_y := key.position.y + key.size.y * 0.74
+	var head := key.size.y * 0.16
+	_tab.draw_line(Vector2(left, upper), Vector2(right, upper), pencil, 3.0, true)
+	_tab.draw_polyline(PackedVector2Array([Vector2(right - head, upper - head), Vector2(right, upper),
+		Vector2(right - head, upper + head)]), pencil, 3.0, true)
+	_tab.draw_line(Vector2(right + 4.0, upper - head), Vector2(right + 4.0, upper + head), pencil, 3.0, true)
+	_tab.draw_line(Vector2(right, lower_y), Vector2(left, lower_y), pencil, 3.0, true)
+	_tab.draw_polyline(PackedVector2Array([Vector2(left + head, lower_y - head), Vector2(left, lower_y),
+		Vector2(left + head, lower_y + head)]), pencil, 3.0, true)
+	_tab.draw_line(Vector2(left - 4.0, lower_y - head), Vector2(left - 4.0, lower_y + head), pencil, 3.0, true)
 
 
 func _entry(id: StringName) -> Entry:

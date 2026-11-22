@@ -86,9 +86,13 @@ func follow(body: Transform3D, hands: Vector3) -> void:
 	if _chair != null and chair_at == ChairAt.CARRIED:
 		var held := Transform3D(facing * BuilderPose.CARRY.basis, hands + facing * BuilderPose.CARRY.origin)
 		var weight := smoothstep(0.0, 1.0, lift)
+		# 离地时先往上抬、后往怀里收，落地时反过来：她还弯着腰的时候椅子不往她身上贴。
+		var rise := smoothstep(0.0, 0.7, lift)
+		var reach := smoothstep(0.3, 1.0, lift)
+		var origin := _floor.origin.lerp(held.origin, reach)
+		origin.y = lerpf(_floor.origin.y, held.origin.y, rise)
 		_chair.global_transform = Transform3D(
-			Basis(_floor.basis.get_rotation_quaternion().slerp(held.basis.get_rotation_quaternion(), weight)),
-			_floor.origin.lerp(held.origin, weight))
+			Basis(_floor.basis.get_rotation_quaternion().slerp(held.basis.get_rotation_quaternion(), weight)), origin)
 	if _board != null and _board.visible:
 		_board.global_transform = Transform3D(facing * BuilderPose.OFFER.basis, hands + facing * BuilderPose.OFFER.origin)
 

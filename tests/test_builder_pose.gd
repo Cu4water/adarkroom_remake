@@ -117,7 +117,30 @@ func test_the_chair_faces_the_fire_and_she_sits_onto_it(t: TestCase) -> void:
 	t.ok(pelvis.distance_to(chair) < 0.001, "坐下后骨盆正好落在坐面正中")
 	t.ok(seat.distance_to(FIRE) < chair.distance_to(FIRE), "她站在椅子和火之间")
 	t.ok((layout["put"] as Vector3).distance_to(FIRE) > chair.distance_to(FIRE), "放椅子时她站在椅子后面")
-	t.ok((layout["around"] as Vector3).length() < chair.length(), "绕到前面时走靠屋子中间那一侧")
+	for point: Vector3 in layout["around"]:
+		t.ok(point.length() < chair.length(), "绕到前面时走靠屋子中间那一侧")
+	t.done()
+
+
+## 放好椅子以后从椅子后面绕到前面坐下：一路上离椅子占的地面至少一条腿粗，不从椅子角上穿过去。
+func test_she_walks_around_the_chair_not_through_it(t: TestCase) -> void:
+	var chair := Vector3(1.45, 0.0, -0.85)
+	var layout := BuilderPose.seat_layout(chair, FIRE)
+	var to_chair := Basis(Vector3.UP, layout["yaw"]).inverse()
+	var footprint := Rect2(-BuilderPose.CHAIR_HALF_WIDTH, -BuilderPose.CHAIR_BACK,
+		BuilderPose.CHAIR_HALF_WIDTH * 2.0, BuilderPose.CHAIR_BACK + BuilderPose.CHAIR_FRONT)
+	var path: Array[Vector3] = [layout["put"]]
+	path.append_array(layout["around"])
+	path.append(layout["seat"])
+	for leg: int in path.size() - 1:
+		for s: int in 21:
+			var at := path[leg].lerp(path[leg + 1], s / 20.0)
+			if at.distance_to(layout["seat"]) < 0.15:
+				continue
+			var local := to_chair * (at - chair)
+			var flat := Vector2(local.x, local.z)
+			var gap := flat.distance_to(flat.clamp(footprint.position, footprint.end))
+			t.ok(gap > 0.12, "第 %d 段离椅子只有 %.2f 米" % [leg, gap])
 	t.done()
 
 

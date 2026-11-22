@@ -30,10 +30,10 @@ const ChairAt := BuilderProps.ChairAt
 ## 躺下时身子从脚往后伸出一米多，所以倒的地方离后墙和门扇都要留出空。
 @export var door_spot := Vector3(-1.1, 0.0, -2.1)
 @export var collapse_spot := Vector3(-1.05, 0.0, -1.2)
-## 椅子一开始在右墙边的暗处，正面朝屋里；她站在它前面弯腰拿起来。
+## 椅子一开始在右墙边的暗处，正面朝屋里；她站在它前面弯腰拿起来。站的地方要让弯下去的膝盖碰不到坐面。
 @export var chair_home := Vector3(2.35, 0.0, 0.35)
 @export var chair_home_yaw := -PI / 2.0
-@export var chair_pick_spot := Vector3(1.85, 0.0, 0.35)
+@export var chair_pick_spot := Vector3(1.7, 0.0, 0.35)
 ## 从倒下的地方去搬椅子，要从火塘前面绕过去。
 @export var to_chair: Array[Vector3] = [Vector3(0.3, 0.0, -0.45)]
 ## 椅子搬到火塘右侧，正面朝着火，离柴堆两三步。
@@ -299,14 +299,16 @@ func _fetch_chair() -> void:
 	_steps.append({"wait": rise / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow, "lift": 1.0})
 	_steps.append({"to": layout["put"], "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK_CARRY,
 		"anim_speed": slow})
-	# 弯腰把它放下，椅子跟着手落到火边。
+	# 半蹲下去把它放下，椅子跟着手落到火边，放稳了就直起身。椅背在她跟前，蹲深了头会扎进椅背。
 	_steps.append({"aim_chair": ChairAt.BY_FIRE})
-	_steps.append({"face": chair_spot, "wait": grab / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow,
+	var put := _anim_seconds(BuilderPose.ANIM_FEED, BuilderPose.FEED_SET_DOWN)
+	_steps.append({"face": chair_spot, "wait": put / slow, "anim": BuilderPose.ANIM_FEED, "anim_speed": slow,
 		"lift": 0.0})
 	_steps.append({"chair": ChairAt.BY_FIRE})
 	_steps.append({"emit": &"chair_set_down"})
-	_steps.append({"wait": rise / slow, "anim": BuilderPose.ANIM_PICKUP, "anim_speed": slow})
-	_steps.append({"to": layout["around"], "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
+	_steps.append({"wait": 0.6, "anim": BuilderPose.ANIM_IDLE_COLD})
+	for point: Vector3 in layout["around"]:
+		_steps.append({"to": point, "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
 	_steps.append({"to": layout["seat"], "speed": weak_walk_speed, "anim": BuilderPose.ANIM_WALK, "anim_speed": slow})
 	_steps.append({"yaw": layout["yaw"], "wait": 0.5, "anim": BuilderPose.ANIM_IDLE_COLD})
 	_steps.append({"until": BuilderPose.ANIM_SITTING, "anim_speed": slow})
