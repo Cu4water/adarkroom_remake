@@ -32,11 +32,11 @@ builder.say.not_enough,木头不够了。
 builder.say.too_cold,太冷了。手不听使唤。
 builder.say.mumble,……
 builder.say.quiet,……
-builder.say.chat.board.1,外头风一直没停。
+builder.say.chat.board.1,风一直呼呼刮着。
 builder.say.chat.board.2,木头烧得比想的快。
 builder.say.chat.board.3,门缝老是漏风，回头得找点东西堵上。
-builder.say.chat.board.4,眼下没什么趁手的工具，只能先做些简单的。
-builder.say.chat.board.5,等木头宽裕些，我还能再做些别的。
+builder.say.chat.board.4,眼下没什么趁手的工具，只能先做些简单的。\n等木头再宽裕些，我还能再做些别的。
+builder.say.chat.board.5,......
 builder.say.chat.forest.1,外头林子里的枯枝，应该还够烧一阵。
 builder.say.chat.forest.2,林子里安静得很，不过偶尔还是能听见动静。
 builder.say.chat.forest.3,外头冷，出去捡柴别走太远。
@@ -66,3 +66,9 @@ item.scales,鳞片
 item.teeth,牙齿
 item.cloth,布
 item.charm,护身符
+menu.save,保存
+menu.new_run,新开一局
+menu.quit,退出
+menu.confirm_new_run,当前进度会清空，周目里记住的事会留下。确定吗？
+menu.confirm_yes,确定
+menu.confirm_no,取消

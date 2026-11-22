@@ -149,7 +149,24 @@ $godot = "D:\Program Files\Steam\steamapps\common\Godot Engine\godot.windows.opt
 
 交付说明包括：做了什么（对照任务卡）、验证结果（测试数、检查结果）、需要制作人判断的东西（截图、数值曲线、待定问题）、已知问题。
 
-每完成一张任务卡并且验证通过，在本地提交一次（见第 10 节）。不推送，不改写历史。
+制作人每完成一张任务卡且验证通过后，自行在本地 `git commit`（见第 10 节）。**AI 未经明确要求不得提交或推送。**
+
+### 3.7 打包
+
+正式可运行包输出到 **`builds/`**，按平台分子目录（例如 `builds/windows/remake.exe`）。该目录在 `.gitignore` 里，**不提交**；配置在 **`export_presets.cfg`**，**要提交**。
+
+当前预设：**Windows Desktop**（Release、x86_64、单文件 `embed_pck`）。导出时排除 `addons/godot_mcp/`、`tests/`、`tools/`，避免开发插件和测试脚本进玩家包。
+
+打包前先跑完第 3.5 节的 `run_tests.gd` 与 `design_lint.gd`。本机需已安装与编辑器版本一致的 **Export Templates**（Steam 版 Godot 自带模板在 `editor_data/export_templates/<版本>/`，可同步到 `%APPDATA%\Godot\export_templates\<版本>/`）。
+
+在 `remake` 目录下：
+
+```powershell
+$godot = "D:\Program Files\Steam\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe"
+& $godot --headless --path . --export-release "Windows Desktop" "builds/windows/remake.exe"
+```
+
+也可用编辑器 **项目 → 导出**，选同名预设。打包后双击 exe 做一遍冒烟；全屏等行为以 `project.godot` 为准。玩家存档仍在 `user://`（Windows 下一般为 `%APPDATA%\Godot\app_userdata\<config/name>/`）。
 
 ---
 
@@ -340,7 +357,7 @@ id 一律用 `StringName` 字面量 `&"..."`。同一个 id 在两个以上的�
 - 一张任务卡一次提交。提交前验证全部通过。
 - 提交信息用中文，第一行是 `<模块>: <做了什么>`，例如 `sim/fire: 建造者只在火没灭的时候添柴`。模块用目录名或系统名。
 - 二进制素材走 LFS（`.gitattributes` 已配置 glb、blend、wav、ogg、exr、hdr；新的二进制类型先加规则再提交）。
-- 不提交：`.godot/`、`addons/godot_mcp/`、临时文件、玩家存档。
+- 不提交：`.godot/`、`addons/godot_mcp/`、`builds/`、临时文件、玩家存档。要提交 `export_presets.cfg`（打包预设）。
 - 不推送、不强推、不改写已有的提交，除非制作人明确要求。
 
 ---
