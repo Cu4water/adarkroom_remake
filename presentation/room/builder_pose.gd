@@ -39,12 +39,12 @@ const LOOP_ANIMS: Array[StringName] = [
 ## 播完才走的连线也会自动走：倒下播完就躺着，起身播完就抱臂站着，坐下播完就坐着。
 ## 表现层只说"去哪个状态"，中间要经过的过渡动作由状态机按连线寻路补上。
 const TRANSITIONS: Array[Array] = [
-	# 进门：抱臂站在门口，踉跄几步，瘫倒在地。
+	# 进门：抱臂站在门口，踉跄几步，仰面瘫倒，再慢慢侧过身蜷起来抱住自己。
 	[ANIM_IDLE_COLD, ANIM_STAGGER, 0.4, false],
 	[ANIM_STAGGER, ANIM_COLLAPSE, 0.35, false],
-	[ANIM_COLLAPSE, ANIM_LYING, 0.15, true],
-	# 缓过来一点：撑地站起来，去搬椅子。
-	[ANIM_LYING, ANIM_GET_UP, 0.25, false],
+	[ANIM_COLLAPSE, ANIM_LYING, 1.4, true],
+	# 缓过来一点：松开手翻过身，撑地站起来，去搬椅子。
+	[ANIM_LYING, ANIM_GET_UP, 0.7, false],
 	[ANIM_GET_UP, ANIM_IDLE_COLD, 0.3, true],
 	# 站着：冷了抱臂，暖了放下手，走动。
 	[ANIM_IDLE_COLD, ANIM_IDLE, 0.7, false],
