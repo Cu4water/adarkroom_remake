@@ -159,10 +159,8 @@ func _flame(base: Vector3, mid: Vector3, tip: Vector3) -> ShaderMaterial:
 	return material
 
 
-func _glass() -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(0.75, 0.85, 0.95, 0.05)
-	material.roughness = 0.12
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+## 不接受灯光的玻璃，火光和门外的光不会在上面亮成光斑。窗玻璃的倒影由 WindowReflection 另外配材质。
+func _glass() -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = WindowReflection.GLASS_SHADER
 	return material

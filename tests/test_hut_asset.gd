@@ -9,6 +9,11 @@ func test_hut_has_the_nodes_the_room_looks_for(t: TestCase) -> void:
 	t.ok(hut.find_child("Door", true, false) is Node3D, "找不到门（Door）")
 	t.ok(hut.find_child("Hut", true, false) is MeshInstance3D, "找不到屋体（Hut）")
 	t.ok(hut.find_child("Embers", true, false) is MeshInstance3D, "找不到余烬（Embers）")
+	var glass := hut.find_child("WindowGlass", true, false) as MeshInstance3D
+	t.ok(glass != null, "找不到窗玻璃（WindowGlass）")
+	if glass != null:
+		var size := glass.get_aabb().size
+		t.ok(minf(size.x, minf(size.y, size.z)) < 0.05, "窗玻璃要是一块平板，倒影按平面算：%s" % size)
 	t.ok(hut.find_children("Flame_*", "MeshInstance3D", true, false).size() >= 2, "火焰（Flame_*）少于两片")
 	var firewood := hut.find_children("Firewood_*", "MeshInstance3D", true, false).size()
 	t.ok(firewood >= Tuning.new().initial_wood, "柴堆只有 %d 根，摆不下开局的木头" % firewood)

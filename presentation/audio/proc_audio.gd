@@ -1,14 +1,36 @@
 class_name ProcAudio
 extends RefCounted
-## 用代码合成的占位音效：风、火的噼啪、点火、添柴、关门。
+## 用代码合成的占位音效：风、火的噼啪、点火、添柴、柴落到柴堆上、开门关门的吱呀、门撞上、铁链拖地。
 ##
-## 项目里还没有正式的音频素材，这些只是让第一章的声音逻辑能先跑起来。
-## 都是滤过的噪声，听起来够用但谈不上好。RoomAudio 上每个声音都留了导出属性，
+## 项目里还没有正式的音频素材，这些只是让第一章的声音逻辑能先跑起来。RoomAudio 上每个声音都留了导出属性，
 ## 把正式素材拖进去就会盖掉这里生成的。
+## 风和火是滤过的噪声；木头和铁链用 StkFoley（移植自 STK 的模态敲击和 PhISEM），门轴用 DoorCreak。
+## 每个函数都按 noise_seed 出声，换个种子就是同一个动作的另一个变体。
 
 const RATE := 22050
 ## 循环音效首尾交叉淡化的长度，半秒。
 const LOOP_FADE := 11025
+## 开门、关门的吱呀各按多长合成（秒）。门动得快慢不一样时，RoomAudio 用音高去对。
+const OPEN_SECONDS := 0.8
+const CLOSE_SECONDS := 0.85
+## 推门的力随时间（秒）怎么变，见 DoorCreak。开门先是低低一声，紧跟着拔高成尖的"吱——"，
+## 顿一下再"呀"一声收住；关门一上来就使着劲，越关越慢、越低，是一声往下走的长"呀——"。
+const OPEN_FORCE: Array[Vector2] = [
+	Vector2(0.0, 0.0), Vector2(0.05, 0.0), Vector2(0.1, 0.5), Vector2(0.32, 0.9), Vector2(0.44, 0.6),
+	Vector2(0.56, 0.78), Vector2(0.72, 0.38), Vector2(0.8, 0.2),
+]
+const CLOSE_FORCE: Array[Vector2] = [
+	Vector2(0.0, 0.0), Vector2(0.06, 0.82), Vector2(0.28, 0.72), Vector2(0.6, 0.5), Vector2(0.8, 0.33),
+	Vector2(0.85, 0.2),
+]
+## 关门时门轴更涩，滑动的间隔拉长这么多倍，音调比开门低一截。
+const CLOSE_STIFFNESS := 1.4
+## 拖铁链的速度（0 到 1）随时间（秒）怎么变：拽两把，中间停一下。
+const DRAG_SPEED: Array[Vector2] = [
+	Vector2(0.0, 0.0), Vector2(0.12, 0.95), Vector2(0.45, 0.7), Vector2(0.7, 0.2), Vector2(0.88, 0.0),
+	Vector2(1.05, 0.0), Vector2(1.2, 0.9), Vector2(1.55, 0.65), Vector2(1.95, 0.15), Vector2(2.2, 0.0),
+]
+const DRAG_SECONDS := 2.5
 
 
 ## 噼啪声：随机冒出来的短促爆音。
@@ -103,25 +125,42 @@ static func ignite(noise_seed: int) -> AudioStreamWAV:
 	return _to_stream(buffer, false)
 
 
-## 添柴：木头落进火里两声闷响，溅起一阵火星。
+## 添柴的木头声：一根粗柴砸在烧着的柴上，闷闷一声"咚"，紧跟着它滚一下，又磕到别的柴上。
+## 烧过的木头软，所以敲击比柴堆上的那一下更钝、更低。火里的反应是 embers()。
 static func stoke(noise_seed: int) -> AudioStreamWAV:
 	var rng := _rng(noise_seed)
+	var length := 0.6
+	var buffer := _silence(length)
+	var gains := StkFoley.bar_gains(rng.randf_range(0.3, 0.5), 0.008)
+	_mix(buffer, StkFoley.strike(rng, 0.4, rng.randf_range(260.0, 400.0), StkFoley.WOOD2_RATIOS,
+		StkFoley.WOOD2_RADII, gains, 3.0, 0.35, 0.08), 0.0, 0.6)
+	var roll := rng.randf_range(0.12, 0.2)
+	_mix(buffer, StkFoley.strike(rng, 0.3, rng.randf_range(520.0, 800.0), StkFoley.WOOD1_RATIOS,
+		StkFoley.WOOD1_RADII, StkFoley.bar_gains(rng.randf_range(0.2, 0.5), 0.008), 2.0, 0.5, 0.05),
+		roll, 0.3)
+	for i: int in buffer.size():
+		buffer[i] += _thump(float(i) / RATE, 140.0, 65.0, 0.05) * 0.5
+	return _to_stream(StkFoley.normalized(_faded(buffer, length, 0.1), 0.85), false)
+
+
+## 柴压进火里之后：炭块挪动，灰扬起来"噗"一下，火星噼啪几声。和 stoke() 的木头声叠着放。
+static func embers(noise_seed: int) -> AudioStreamWAV:
+	var rng := _rng(noise_seed)
+	var length := 1.4
+	var buffer := _silence(length)
+	var coals := StkFoley.crunch(rng)
+	_mix(buffer, StkFoley.run(coals, 0.6, func(t: float) -> float: return 0.5 * exp(-t / 0.15)), 0.03, 0.28)
 	var pops := Pops.new(rng)
-	var count := int(1.3 * RATE)
-	var buffer := PackedFloat32Array()
-	buffer.resize(count)
-	var low := 0.0
-	for i: int in count:
+	var ash := 0.0
+	for i: int in buffer.size():
 		var t := float(i) / RATE
 		var white := rng.randf() * 2.0 - 1.0
-		var sample := _thump(t, 150.0, 70.0, 0.045) * 0.7 + _thump(t - 0.17, 120.0, 60.0, 0.04) * 0.5
-		sample += white * (_click(t) + _click(t - 0.17)) * 0.3
-		low += (white - low) * 0.12
-		sample += low * exp(-t / 0.3) * 0.5
-		var chance := 0.0 if t < 0.05 else 45.0 / RATE * exp(-t / 0.35)
-		sample += pops.next(white, chance) * 0.7
-		buffer[i] = sample * _tail(t, 1.3, 0.15)
-	return _to_stream(buffer, false)
+		ash += (white - ash) * 0.08
+		var sample := ash * minf(t / 0.015, 1.0) * exp(-t / 0.22) * 0.9
+		var chance := 0.0 if t < 0.06 else 45.0 / RATE * exp(-t / 0.35)
+		sample += pops.next(white, chance) * 0.55
+		buffer[i] += sample
+	return _to_stream(StkFoley.normalized(_faded(buffer, length, 0.15), 0.85), false)
 
 
 ## 点了火堆但没添上柴时，拨一下火的轻响。
@@ -139,40 +178,134 @@ static func poke(noise_seed: int) -> AudioStreamWAV:
 	return _to_stream(buffer, false)
 
 
-## 一根柴落到柴堆上：干木头磕木头，一声脆响带一下轻弹。
+## 一根柴落到柴堆上：干木头磕木头"梆"一声，弹起来再磕一两下，柴堆里的细枝跟着窸窣一阵。
 static func log_drop(noise_seed: int) -> AudioStreamWAV:
 	var rng := _rng(noise_seed)
-	var count := int(0.35 * RATE)
-	var buffer := PackedFloat32Array()
-	buffer.resize(count)
-	for i: int in count:
-		var t := float(i) / RATE
-		var white := rng.randf() * 2.0 - 1.0
-		var sample := _thump(t, 260.0, 180.0, 0.025) * 0.55 + _thump(t - 0.07, 300.0, 220.0, 0.015) * 0.25
-		sample += white * (_click(t) * 0.4 + _click(t - 0.07) * 0.15)
-		buffer[i] = sample * _tail(t, 0.35, 0.08)
-	return _to_stream(buffer, false)
+	var length := 0.5
+	var buffer := _silence(length)
+	var base := rng.randf_range(700.0, 1250.0)
+	_mix(buffer, _dry_knock(rng, base, 4.0, 0.65), 0.0, 0.8)
+	var bounce := rng.randf_range(0.05, 0.09)
+	_mix(buffer, _dry_knock(rng, base * rng.randf_range(1.05, 1.3), 3.0, 0.7), bounce, rng.randf_range(0.25, 0.4))
+	if rng.randf() < 0.6:
+		_mix(buffer, _dry_knock(rng, base * rng.randf_range(1.1, 1.4), 2.0, 0.75),
+			bounce + rng.randf_range(0.03, 0.05), 0.12)
+	var twigs := StkFoley.sticks(rng)
+	twigs.shake(0.6)
+	_mix(buffer, StkFoley.run(twigs, 0.2, func(_t: float) -> float: return 0.0), bounce, 0.1)
+	for i: int in buffer.size():
+		buffer[i] += _thump(float(i) / RATE, 230.0, 170.0, 0.02) * 0.3
+	return _to_stream(StkFoley.normalized(_faded(buffer, length, 0.08), 0.85), false)
 
 
-## 门关上的一声。
+## 推开门：先"咔"一声门闩松开，门轴低低咯一下，再拔高成"吱——呀"。和关门的吱呀不是同一种。
+static func door_open(noise_seed: int) -> AudioStreamWAV:
+	var rng := _rng(noise_seed)
+	var buffer := _silence(OPEN_SECONDS)
+	_mix(buffer, _dry_knock(rng, 1700.0, 0.6, 0.9), 0.0, 0.3)
+	var push := func(t: float) -> float: return _contour(t, OPEN_FORCE) + 0.03 * sin(t * 23.0)
+	_mix(buffer, DoorCreak.synth(rng, OPEN_SECONDS, push), 0.0, 1.0)
+	return _to_stream(StkFoley.normalized(_faded(buffer, OPEN_SECONDS, 0.08), 0.85), false)
+
+
+## 门往回关：门轴更涩，一声往下走的长"呀——"。撞上门框的那一下是 door()。
+static func door_close(noise_seed: int) -> AudioStreamWAV:
+	var rng := _rng(noise_seed)
+	var push := func(t: float) -> float: return _contour(t, CLOSE_FORCE) + 0.04 * sin(t * 17.0)
+	var buffer := DoorCreak.synth(rng, CLOSE_SECONDS, push, CLOSE_STIFFNESS)
+	return _to_stream(StkFoley.normalized(_faded(buffer, CLOSE_SECONDS, 0.06), 0.85), false)
+
+
+## 门撞上门框：一声闷响，门板"嗡"一下，门闩落下"咔"。
 static func door(noise_seed: int) -> AudioStreamWAV:
 	var rng := _rng(noise_seed)
-	var count := int(0.6 * RATE)
-	var buffer := PackedFloat32Array()
-	buffer.resize(count)
-	for i: int in count:
+	var length := 0.6
+	var buffer := _silence(length)
+	_mix(buffer, StkFoley.strike(rng, 0.4, 190.0, StkFoley.WOOD2_RATIOS, StkFoley.WOOD2_RADII,
+		StkFoley.bar_gains(0.4, 0.008), 3.0, 0.4, 0.05), 0.0, 0.4)
+	_mix(buffer, _dry_knock(rng, 2100.0, 0.8, 0.9), 0.03, 0.2)
+	for i: int in buffer.size():
 		var t := float(i) / RATE
 		var white := rng.randf() * 2.0 - 1.0
-		var sample := _thump(t, 95.0, 50.0, 0.07) * 0.8 + _thump(t - 0.09, 130.0, 80.0, 0.03) * 0.3
-		sample += white * (_click(t) * 0.35 + _click(t - 0.09) * 0.15)
-		buffer[i] = sample * _tail(t, 0.6, 0.1)
-	return _to_stream(buffer, false)
+		buffer[i] += _thump(t, 95.0, 50.0, 0.07) * 0.8 + white * _click(t) * 0.3
+	return _to_stream(StkFoley.normalized(_faded(buffer, length, 0.1), 0.85), false)
+
+
+## 一副陷阱拖出门去：铁链在冻土上拽了两把，链环互相磕，蹭着地上的碎石。隔着门，高频闷掉一些。
+static func chain_drag(noise_seed: int) -> AudioStreamWAV:
+	var rng := _rng(noise_seed)
+	var buffer := _silence(DRAG_SECONDS)
+	var speed := func(t: float) -> float: return _contour(t, DRAG_SPEED)
+	var jerky := func(t: float) -> float: return speed.call(t) * (0.75 + 0.25 * sin(t * 31.0) * sin(t * 7.3))
+	_mix(buffer, StkFoley.run(StkFoley.chain(rng), DRAG_SECONDS, jerky), 0.0, 0.55)
+	_mix(buffer, _low_passed(StkFoley.run(StkFoley.gravel(rng), DRAG_SECONDS,
+		func(t: float) -> float: return speed.call(t) * 0.6), 2500.0), 0.0, 0.3)
+	# 拽着走的时候链环一下一下砸地，越快砸得越勤。
+	var t := 0.0
+	while t < DRAG_SECONDS - 0.2:
+		var now: float = speed.call(t)
+		if now > 0.15:
+			_mix(buffer, StkFoley.strike(rng, 0.18, rng.randf_range(900.0, 1500.0), StkFoley.AGOGO_RATIOS,
+				StkFoley.AGOGO_RADII, StkFoley.AGOGO_GAINS, 0.8, 0.8, 0.3), t, now * rng.randf_range(0.3, 0.7))
+		t += rng.randf_range(0.04, 0.16) / maxf(now, 0.25)
+	buffer = _low_passed(buffer, 5500.0)
+	return _to_stream(StkFoley.normalized(_faded(buffer, DRAG_SECONDS, 0.2), 0.8), false)
 
 
 static func _rng(noise_seed: int) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = noise_seed
 	return rng
+
+
+static func _silence(seconds: float) -> PackedFloat32Array:
+	var buffer := PackedFloat32Array()
+	buffer.resize(int(seconds * RATE))
+	return buffer
+
+
+## 把 part 乘上 gain 叠进 into，从 at 秒开始，超出 into 的部分丢掉。
+static func _mix(into: PackedFloat32Array, part: PackedFloat32Array, at: float, gain: float) -> void:
+	var start := int(at * RATE)
+	for i: int in mini(part.size(), into.size() - start):
+		into[start + i] += part[i] * gain
+
+
+## 结尾淡出，免得声音戛然而止。
+static func _faded(buffer: PackedFloat32Array, length: float, fade: float) -> PackedFloat32Array:
+	for i: int in buffer.size():
+		buffer[i] *= _tail(float(i) / RATE, length, fade)
+	return buffer
+
+
+## 按 points（x 是秒，y 是值，x 从小到大）在 t 秒处取值，相邻两点之间平滑过渡，两头之外取端点的值。
+static func _contour(t: float, points: Array[Vector2]) -> float:
+	if t <= points[0].x:
+		return points[0].y
+	for i: int in range(1, points.size()):
+		if t < points[i].x:
+			var a := points[i - 1]
+			var b := points[i]
+			return lerpf(a.y, b.y, smoothstep(a.x, b.x, t))
+	return points[points.size() - 1].y
+
+
+## 干木头磕一下。ring 是余音拉长几倍，hardness 越大越脆。
+static func _dry_knock(rng: RandomNumberGenerator, base_hz: float, ring: float, hardness: float) -> PackedFloat32Array:
+	var gains := StkFoley.bar_gains(rng.randf_range(0.2, 0.5), 0.008)
+	return StkFoley.strike(rng, 0.3, base_hz, StkFoley.WOOD1_RATIOS, StkFoley.WOOD1_RADII, gains, ring, hardness, 0.05)
+
+
+## 一阶低通。
+static func _low_passed(buffer: PackedFloat32Array, cutoff_hz: float) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	out.resize(buffer.size())
+	var k := 1.0 - exp(-TAU * cutoff_hz / RATE)
+	var y := 0.0
+	for i: int in buffer.size():
+		y += (buffer[i] - y) * k
+		out[i] = y
+	return out
 
 
 ## 一声从 from_hz 滑到 to_hz 的闷响，u 是从它开始算起的时间。

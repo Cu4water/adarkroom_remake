@@ -7,14 +7,21 @@ extends Node3D
 ##
 ## 这个节点不认识模拟层，由 Room 把火势告诉它。把它放在火堆的位置上，火声就会从火的方向传来。
 
-## 正式素材。留空就用 ProcAudio 合成的占位声音。
+## 正式素材。留空就用 ProcAudio 合成的占位声音。带 s 的是同一个动作的几个变体，每次随机挑一个，不连着重复。
 @export var wind_stream: AudioStream
 @export var fire_stream: AudioStream
 @export var ignite_stream: AudioStream
-@export var stoke_stream: AudioStream
+## 添柴分两层：柴砸在火里的木头声，和随后炭块挪动、火星噼啪的火声。
+@export var stoke_streams: Array[AudioStream] = []
+@export var ember_streams: Array[AudioStream] = []
 @export var poke_stream: AudioStream
+## 开门、关门的吱呀，和门撞上门框的那一下。
+@export var door_open_stream: AudioStream
+@export var door_close_stream: AudioStream
 @export var door_stream: AudioStream
-@export var log_drop_stream: AudioStream
+@export var log_drop_streams: Array[AudioStream] = []
+## 造好一副陷阱，铁链在门外地上拖过去。
+@export var chain_drag_stream: AudioStream
 
 ## 下面每张表都是五个数，依次对应：灭、闷烧、摇曳、燃烧、旺。
 ## 风的主体音量（分贝）。
@@ -42,8 +49,14 @@ var _wind_body: AudioStreamPlayer
 var _wind_howl: AudioStreamPlayer
 var _fire: AudioStreamPlayer3D
 var _action: AudioStreamPlayer3D
-var _door: AudioStreamPlayer
+var _embers: AudioStreamPlayer3D
+var _creak: AudioStreamPlayer3D
+var _door: AudioStreamPlayer3D
 var _log_drop: AudioStreamPlayer3D
+var _chain: AudioStreamPlayer3D
+## 上一次用的是第几个变体。
+var _last_stoke := -1
+var _last_log := -1
 
 var _low_pass: AudioEffectLowPassFilter
 var _band_pass: AudioEffectBandPassFilter
@@ -78,14 +91,28 @@ func _ready() -> void:
 	_wind_howl = _player(wind, BUS_HOWL)
 	_fire = _player_3d(fire_stream if fire_stream != null else ProcAudio.crackle_loop(6.0, 23))
 	_action = _player_3d(null)
-	_door = _player(door_stream if door_stream != null else ProcAudio.door(41), &"Master")
-	_log_drop = _player_3d(log_drop_stream if log_drop_stream != null else ProcAudio.log_drop(47))
+	_embers = _player_3d(null)
+	_creak = _player_3d(null)
+	_door = _player_3d(door_stream if door_stream != null else ProcAudio.door(41))
+	_log_drop = _player_3d(null)
+	_chain = _player_3d(chain_drag_stream if chain_drag_stream != null else ProcAudio.chain_drag(67))
 	if ignite_stream == null:
 		ignite_stream = ProcAudio.ignite(31)
-	if stoke_stream == null:
-		stoke_stream = ProcAudio.stoke(37)
+	if stoke_streams.is_empty():
+		for noise_seed: int in [37, 38, 39]:
+			stoke_streams.append(ProcAudio.stoke(noise_seed))
+	if ember_streams.is_empty():
+		for noise_seed: int in [37, 38, 39]:
+			ember_streams.append(ProcAudio.embers(noise_seed))
 	if poke_stream == null:
 		poke_stream = ProcAudio.poke(43)
+	if door_open_stream == null:
+		door_open_stream = ProcAudio.door_open(71)
+	if door_close_stream == null:
+		door_close_stream = ProcAudio.door_close(73)
+	if log_drop_streams.is_empty():
+		for noise_seed: int in [47, 53, 59, 61]:
+			log_drop_streams.append(ProcAudio.log_drop(noise_seed))
 
 	_update(0.0)
 	_wind_body.play()
@@ -116,29 +143,57 @@ func gust(strength: float, hold: float) -> void:
 
 ## 火着起来的那一下：风先退一截，像是被火挡在了外面。
 func play_ignite() -> void:
+	_action.pitch_scale = 1.0
 	_play_action(ignite_stream, 0.0)
 	_hush_left = hush_seconds
 
 
 func play_stoke() -> void:
-	_play_action(stoke_stream, -2.0)
+	_last_stoke = _variant(stoke_streams.size(), _last_stoke)
+	_action.pitch_scale = _rng.randf_range(0.85, 0.97)
+	_play_action(stoke_streams[_last_stoke], -6.0)
+	_embers.stream = ember_streams[_rng.randi() % ember_streams.size()]
+	_embers.volume_db = -5.0
+	_embers.play()
 
 
 func play_poke() -> void:
+	_action.pitch_scale = 1.0
 	_play_action(poke_stream, -8.0)
 
 
 ## 一根柴落到柴堆上。at 是落点，声音从那个方向传来；一根接一根落下时音高稍微错开。
 func play_log_drop(at: Vector3) -> void:
+	_last_log = _variant(log_drop_streams.size(), _last_log)
+	_log_drop.stream = log_drop_streams[_last_log]
 	_log_drop.global_position = at
-	_log_drop.pitch_scale = _rng.randf_range(0.88, 1.12)
-	_log_drop.volume_db = -5.0
+	_log_drop.pitch_scale = _rng.randf_range(0.92, 1.08)
+	_log_drop.volume_db = -8.0
 	_log_drop.play()
 
 
-func play_door() -> void:
+## 门开始开。at 是门的位置，seconds 是门这一次开过去要多久：撞开的时候快，吱呀声也跟着急促、尖一些。
+func play_door_open(at: Vector3, seconds: float) -> void:
+	_play_creak(door_open_stream, at, ProcAudio.OPEN_SECONDS / seconds, -9.0)
+
+
+## 门开始往回关。seconds 是这一次关回来要多久。
+func play_door_close(at: Vector3, seconds: float) -> void:
+	_play_creak(door_close_stream, at, ProcAudio.CLOSE_SECONDS / seconds, -11.0)
+
+
+## 门撞上门框。
+func play_door(at: Vector3) -> void:
+	_door.global_position = at
 	_door.volume_db = -6.0
 	_door.play()
+
+
+## 门外有人把一副新陷阱拖走了。at 是门的位置。
+func play_chain_drag(at: Vector3) -> void:
+	_chain.global_position = at
+	_chain.volume_db = -10.0
+	_chain.play()
 
 
 func _process(delta: float) -> void:
@@ -184,6 +239,23 @@ func _play_action(stream: AudioStream, volume_db: float) -> void:
 	_action.stream = stream
 	_action.volume_db = volume_db
 	_action.play()
+
+
+## 音高按门动的快慢对齐，但不让它变得像别的东西：太快的不尖成哨子，太慢的不沉成闷雷。
+func _play_creak(stream: AudioStream, at: Vector3, pitch: float, volume_db: float) -> void:
+	_creak.stream = stream
+	_creak.global_position = at
+	_creak.pitch_scale = clampf(pitch, 0.8, 1.5)
+	_creak.volume_db = volume_db
+	_creak.play()
+
+
+## 从 count 个变体里随机挑一个的序号，不和上一次的 last 相同。
+func _variant(count: int, last: int) -> int:
+	if count < 2:
+		return 0
+	var index := _rng.randi_range(0, count - 2)
+	return index + 1 if last >= 0 and index >= last else index
 
 
 func _player(stream: AudioStream, bus: StringName) -> AudioStreamPlayer:

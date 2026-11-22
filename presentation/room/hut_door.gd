@@ -1,8 +1,12 @@
 class_name HutDoor
 extends RefCounted
 ## 门和门外那道光。门外的光就是"现在可以出去拾柴"，拾过之后暗下去，等冷却结束再亮起来。
-## 门开到 swing 角度，停一会儿，再关上；关上那一刻发 closed。
+## 门开到 swing 角度，停一会儿，再关上。开始开、开始关、关上的那一刻各发一个信号，声音跟着它们走。
 
+## seconds 是这一次门开过去要多久。
+signal opening(seconds: float)
+## seconds 是这一次门关回来要多久。
+signal closing(seconds: float)
 signal closed
 
 ## 门正开着（从开始开到关上为止）。
@@ -61,9 +65,11 @@ func swing(open_seconds: float, hold_seconds: float, close_seconds: float, angle
 	_tween.tween_property(_door, ^"transform", open, open_seconds) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_tween.tween_interval(hold_seconds)
+	_tween.tween_callback(closing.emit.bind(close_seconds))
 	_tween.tween_property(_door, ^"transform", _rest, close_seconds) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	_tween.tween_callback(_on_closed)
+	opening.emit(open_seconds)
 
 
 func _on_closed() -> void:

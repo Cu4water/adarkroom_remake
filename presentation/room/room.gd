@@ -76,6 +76,8 @@ const GLOW_SHADER := preload("res://presentation/room/shaders/interact_glow.gdsh
 @onready var _crosshair: Control = $UI/Crosshair
 
 var _door: HutDoor
+var _quality := GraphicsQuality.new()
+var _reflection := WindowReflection.new()
 ## 主角现在朝哪看、眼睛在哪，见 PovView。
 var _look := Vector2.ZERO
 var _eye := Vector3.ZERO
@@ -92,11 +94,16 @@ var _lines := BuilderLines.new()
 
 func _ready() -> void:
 	Game.ensure_booted()
+	add_child(_quality)
 	var materials := HutMaterials.new()
 	materials.apply(_hut)
 	materials.apply(_chair)
+	add_child(_reflection)
+	_reflection.bind(_hut.find_child("WindowGlass", true, false), _fire_point.global_position)
 	_rig.bind(_hut, materials)
 	_door = HutDoor.new(_hut.find_child("Door", true, false), _door_light, door_swing, door_light_energy)
+	_door.opening.connect(_on_door_opening)
+	_door.closing.connect(_on_door_closing)
 	_door.closed.connect(_on_door_closed)
 	_woodpile.bind(_hut)
 	_builder.bind_chair(_chair)
@@ -125,6 +132,7 @@ func _ready() -> void:
 	events.narrated.connect(_on_narrated)
 	events.unlocked.connect(_on_unlocked)
 	events.store_changed.connect(_on_store_changed)
+	events.building_changed.connect(_on_building_changed)
 	events.state_replaced.connect(_sync)
 	_sync()
 
@@ -200,11 +208,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not OS.is_debug_build() or key == null or not key.pressed or key.echo:
 		return
-	# 开发用：F9 重新开一局回到黑屏；F1 显示叙述文字，对照节拍用。
+	# 开发用：F9 重新开一局回到黑屏；F1 显示叙述文字，对照节拍用；F8 换一档画质，对比抗锯齿和阴影用。
 	if key.keycode == KEY_F9:
 		Game.new_run()
 	elif key.keycode == KEY_F1:
 		_log.visible = not _log.visible
+	elif key.keycode == KEY_F8:
+		_quality.cycle()
 
 
 ## 还没生过火的黑屏：火灭着，陌生人没来过，森林也还没有。
@@ -314,9 +324,17 @@ func _gather() -> void:
 	_woodpile.deliver(before, _door_area.global_position, delivery_delay)
 
 
+func _on_door_opening(seconds: float) -> void:
+	_audio.play_door_open(_door_area.global_position, seconds)
+
+
+func _on_door_closing(seconds: float) -> void:
+	_audio.play_door_close(_door_area.global_position, seconds)
+
+
 ## 门关上时柴才落到柴堆上。
 func _on_door_closed() -> void:
-	_audio.play_door()
+	_audio.play_door(_door_area.global_position)
 	_woodpile.refresh()
 
 
@@ -371,6 +389,12 @@ func _on_unlocked(feature: StringName) -> void:
 		# "外面风在嚎。"
 		_audio.gust(0.75, 2.5)
 		_woodpile.refresh()
+
+
+## 造好一副陷阱：门外有人把它拖去林子里，铁链在地上拖过去。
+func _on_building_changed(id: StringName, _count: int) -> void:
+	if id == ForestSystem.TRAP:
+		_audio.play_chain_drag(_door_area.global_position)
 
 
 func _on_store_changed(id: StringName, _amount: int, _delta: int, _source: StringName) -> void:

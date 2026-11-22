@@ -21,7 +21,10 @@
 
 - `presentation/room/room_audio.gd`：暗室的风、火和动作音效。五档火势各有一张表：风的主体音量、风里尖啸层的音量、风的低通截止频率、火声音量。风声跟随火势故意慢（让玩家听得出"风在退"），火声和画面同步。
 - 开场黑屏时每隔 5 到 9 秒来一阵风，告诉玩家这里有东西、不是卡住了；生火那一下风退得快一些（`hush_speed`），之后再按原来的慢速跟随火势。
-- `presentation/audio/proc_audio.gd`：代码合成的占位声音（风、噼啪、点火、添柴、拨火、关门）。`RoomAudio` 上每个声音都留了导出属性，拖进正式素材就会盖掉占位。
+- `presentation/audio/proc_audio.gd`：代码合成的占位声音（风、噼啪、点火、添柴、拨火、柴落到柴堆上、开门和关门的吱呀、门撞上门框、铁链拖地）。`RoomAudio` 上每个声音都留了导出属性，拖进正式素材就会盖掉占位。添柴和柴落柴堆的木头声已经换成录音（`room.tscn` 里赋值，来源见第 9 节），添柴 3 个变体、柴落柴堆 4 个，随机挑、不连着重复；添柴的木头声降一点音高（烧过的木头更钝），上面再叠一层合成的炭块挪动和火星（`ProcAudio.embers`）。
+- `presentation/audio/stk_foley.gd`（`StkFoley`）：移植自 [STK](https://github.com/thestk/stk) 的两种物理启发合成（MIT 式许可，版权声明保留在文件开头，发行时要写进授权声明）。`Shaker` 是 PhISEM 随机碰撞模型，预设用到 Stix1（柴堆里的细枝）、Crunch1（火里的炭块挪动）、Little Rocks（铁链蹭过地面）和照 Sleighbells 改的铁链；`strike()` 是 ModalBar 的模态敲击，用 Wood1、Wood2 当木头，Agogo 当铁链环砸地。
+- `presentation/audio/door_creak.gd`（`DoorCreak`）：门轴吱呀，按 Andy Farnell《Designing Sound》第 32 章的模型重写（黏滑摩擦脉冲 → 门板木头共振 → 门框八条短延迟），参考了 Faust `examples/gameaudio/door.dsp` 和 Wikibooks《Designing Sound in SuperCollider》的实现。开门和关门给不同的推力曲线：开门是拔高的"吱——呀"，关门门轴更涩，是一声往下走的长"呀——"，关到底再接门撞上门框的闷响。门动得快慢不一样时（建造者撞门进来）按时长调音高，限制在 0.8 到 1.5 倍。
+- 造好一副陷阱时，门外传来一阵铁链在地上拖过去的声音（`RoomAudio.play_chain_drag`，由 `building_changed` 触发）。
 - 总线：`WindBody`（低通）、`WindHowl`（带通），在运行时创建。
 - `presentation/audio/babble.gd`（`Babble`）：NPC 说话时的"哔哔啵啵"合成人声，移植自 [bibibobo](https://github.com/hakihakii/bibibobo)（MIT，版权声明保留在文件开头，发行时要写进授权声明）。每个字（汉字一个、连续的字母数字一组）一个音节：音高从角色的音阶里按字的哈希取，同一个字永远同一个音；元音共振峰决定音色；句末的问号上扬、感叹号整句抬高、省略号压低并下滑。锯齿波 + 两个带通滤波器，22050 Hz，按文本缓存。每个角色一个 `Babble.Voice`（现在只有 `builder_voice()`）。
 - `presentation/common/npc_speech.gd`（`NpcSpeech`）：挂在人物头顶，播放 `Babble` 的声音，字幕按音节时刻逐字出现。合成用的文本可以和字幕不同：建造者刚缓过来时字幕只有省略号，声音是含混的哼声（不含可辨词语，符合 1.6）。之后她说的话按制作人要求配字幕（见 `docs/narrative.md` 4.4、4.6）。
@@ -132,7 +135,15 @@ Master
 
 ## 9. 制作流程
 
-- **作曲和正式音效的来源待定**（自己做、外包、授权素材库，或 AI 生成）。确定之前，AI 用 `ProcAudio` 合成占位，占位要在文件说明里注明。
+- **作曲和正式音效的来源待定**（自己做、外包、授权素材库，或 AI 生成）。确定之前，AI 用 `ProcAudio` 合成占位，占位要在文件说明里注明。例外：木头声按制作人要求先用了 CC0 录音，见下表。
+- 已接入的外部素材（发行时写进授权声明）：
+
+| 文件 | 原文件 | 来源 | 授权 |
+| --- | --- | --- | --- |
+| `sfx/sfx_wood_drop_01..04.wav` | `wood_falling_01`、`03`、`04`、`05` | rubberduck，[100 CC0 metal and wood SFX](https://opengameart.org/content/100-cc0-metal-and-wood-sfx)（OpenGameArt） | CC0 |
+| `sfx/sfx_fire_stoke_01..03.wav` | `wood_hit_07`、`wood_hit_09`、`wood_misc_07` | 同上 | CC0 |
+
+  原文件是 ogg，转成了 48 kHz 单声道 16 位 wav，切掉尾部静音、峰值归一到 -1 dB，没有做别的处理。
 - AI 负责：音频导演和总线的实现、状态到声音的映射表、占位声音、接入正式素材、混音参数。
 - 制作人负责：动机、配器方向、正式素材是否通过。
 - 每接入一个正式素材，在交付说明里写明来源和授权。

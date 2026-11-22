@@ -118,8 +118,8 @@ remake/
     stages/              每个地点一个舞台                                待建（room 暂在 presentation/room）
     directors/           镜头、光照、音频、节拍导演                       待建
     ui/                  Theme、日志、按钮、面板                          部分已有（建造者的数据板）
-    common/              共享的着色器、环境、材质、NPC 头顶字幕            部分已有（NpcSpeech）
-    audio/               代码合成的声音：占位音效、NPC 说话声（Babble）     已有
+    common/              共享的着色器、环境、材质、NPC 头顶字幕、按设备选画质     部分已有（NpcSpeech、GraphicsQuality）
+    audio/               代码合成的声音：占位音效（含 STK 移植、门轴吱呀）、NPC 说话声（Babble）     已有
     debug/               调试台                                          已有
   assets/                从 Art 导出的运行时素材（glb、贴图、音频）         已有
   tests/                 测试，test_*.gd                                 已有

@@ -10,6 +10,13 @@
 [ext_resource type="PackedScene" path="res://assets/chair/chair.glb" id="8_chair"]
 [ext_resource type="Script" path="res://presentation/room/woodpile.gd" id="9_woodpile"]
 [ext_resource type="Script" path="res://presentation/ui/build_board.gd" id="10_board"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_fire_stoke_01.wav" id="11_stoke1"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_fire_stoke_02.wav" id="12_stoke2"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_fire_stoke_03.wav" id="13_stoke3"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_wood_drop_01.wav" id="14_drop1"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_wood_drop_02.wav" id="15_drop2"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_wood_drop_03.wav" id="16_drop3"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/sfx_wood_drop_04.wav" id="17_drop4"]
 
 [sub_resource type="Environment" id="Environment_room"]
 background_mode = 1
@@ -114,9 +121,10 @@ script = ExtResource("3_rig")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0.52, -1.42)
 light_color = Color(1, 0.708, 0.396, 1)
 light_energy = 0.0
-light_size = 0.12
+light_size = 0.25
 shadow_enabled = true
 shadow_bias = 0.04
+shadow_blur = 3.5
 omni_range = 9.0
 
 [node name="EmberLight" type="OmniLight3D" parent="FireRig"]
@@ -155,6 +163,8 @@ omni_range = 7.0
 [node name="RoomAudio" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 0.3, -1.48)
 script = ExtResource("4_audio")
+stoke_streams = Array[AudioStream]([ExtResource("11_stoke1"), ExtResource("12_stoke2"), ExtResource("13_stoke3")])
+log_drop_streams = Array[AudioStream]([ExtResource("14_drop1"), ExtResource("15_drop2"), ExtResource("16_drop3"), ExtResource("17_drop4")])
 
 [node name="Builder" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.5, 0, -1.95)
